@@ -2,11 +2,11 @@
 set -e  # exit on any error
 shopt -s expand_aliases
 
-DEBUG=false
+DEBUG=true
 
 for arg in "$@"; do
     case $arg in
-        --debug) DEBUG=true ;;
+        --release) DEBUG=false ;;
     esac
 done
 
@@ -18,7 +18,7 @@ catch_errors() {
     fi
 }
 
-OUTPUT_EXE="./block.exe"
+OUTPUT_EXE="./nerd-music.exe"
 INPUT_C="./main.c"
 
 ARGS=()
@@ -42,12 +42,6 @@ ARGS+=(
 
 gcc "${ARGS[@]}"
 catch_errors
-
-if $DEBUG; then
-    gdb "$OUTPUT_EXE"
-    catch_errors
-    exit
-fi
 
 "$OUTPUT_EXE"
 catch_errors

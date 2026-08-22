@@ -5,22 +5,11 @@
 #include "raylib.h"
 
 // TODO: these debug things should not always be compiled
-#define ASSERT_EQ(a,b)\
-    do {\
-        if ((a) != (b)) {\
-            TraceLog(\
-                LOG_ERROR,\
-                "YOU ARE A HORRIBLE PERSON!\n  line: %i\n  condition: [%s(%i) == %s(%i)]",\
-                __LINE__, #a, a, #b, b);\
-            exit(1);\
-        }\
-    } while (0)
-
-#define PANIC()\
-    do {\
-        TraceLog(LOG_ERROR, "YOU ARE A HORRIBLE PERSON!\n  line: %i", __LINE__);\
+#define ASSERT(condition)\
+    do { if (!(condition)) {\
+        TraceLog(LOG_ERROR, "[you are a horrible person] %s:%i -> (%s)", __FILE__, __LINE__, #condition);\
         exit(1);\
-    } while (0)
+    } } while (0)
 
 // defines:
 
@@ -29,14 +18,12 @@
 #define SAMPLE_SIZE 16
 #define CHANNELS 1
 
-// durations:
 #define DURATION_16TH (MEASURE_EVENT_CAPACITY / 16)
 #define DURATION_8TH (MEASURE_EVENT_CAPACITY / 8)
 #define DURATION_4TH (MEASURE_EVENT_CAPACITY / 4)
 #define DURATION_HALF (MEASURE_EVENT_CAPACITY / 2)
 #define DURATION_WHOLE (MEASURE_EVENT_CAPACITY)
 
-// scales:
 #define SCALE_CAPACITY 7
 #define SCALE_MAJOR             {0, 2, 4, 5, 7, 9, 11}
 #define SCALE_DORIAN            {0, 2, 3, 5, 7, 9, 10}
@@ -51,6 +38,11 @@
 #define MUSICAL_EVENT_MAX_TONES 4
 
 #define MEASURE_EVENT_CAPACITY 16
+
+#define HAS_FLAG(flags,flag) ((flags&flag)==flag)
+#define FLAG_NONE (0)
+
+#define MEASURE_FLAG_MUTED (1 << 0)
 
 // enums:
 
@@ -73,12 +65,13 @@ enum {
     NOTE_G_SHARP,
     NOTE_A_FLAT = NOTE_G_SHARP,
     NOTE_COUNT,
+    SILENCE,
 };
 
 enum {
-    TRACK_MELODY,
-    // TRACK_HARMONY,
-    TRACK_TOTAL,
+    MEASURE_MELODY,
+    MEASURE_HARMONY,
+    MEASURE_TOTAL,
 };
 
 // structs:
@@ -86,6 +79,11 @@ enum {
 typedef struct Tone {
     uint8_t note;
     uint8_t octave;
+
+    // audio thread data
+    float frequency;
+    float sineIndex;
+    float volume;
 } Tone;
 
 // this is used for both singular tones and multi-tone chords
@@ -97,31 +95,38 @@ typedef struct MusicalEvent {
 
 // position between 0 -> 1 where 0 is start of tone and 1 is end of tone
 typedef struct MeasurePosition {
-    MusicalEvent event;
     int eventIndex;
     float eventPosition;
 } MeasurePosition;
 
 typedef struct Measure {
+    int flags;
     uint64_t startSample;
     MusicalEvent events[MEASURE_EVENT_CAPACITY];
     int eventCount;
     MeasurePosition position;
 } Measure;
 
-typedef struct Track {
-    float frequency;
-    float sineIndex;
-    float volume;
-    Measure measure;
-} Track;
-
 typedef struct State {
-    Track tracks[TRACK_TOTAL];
+    Measure measures[MEASURE_TOTAL];
     int32_t bigBuffer[AUDIO_STREAM_SIZE];
     // this must be greater than zero for the randomness to work properly
     // TODO: is this guaranteed now?
     uint64_t randomState;
     uint64_t currentSample;
 } State;
+
+// hooray! global variables
+static State *state;
+
+// common functions
+
+static uint64_t NextRandom() {
+    uint64_t x = state->randomState;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    state->randomState = x;
+    return x;
+}
 
