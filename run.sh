@@ -31,7 +31,7 @@ fi
 ARGS+=(
     "-o" "$OUTPUT_EXE"
     "$INPUT_C"
-    "-std=c99"
+    "-std=c11"
     "-I./raylib/include/"
     "-L./raylib/lib/"
     "-l:libraylib.a"

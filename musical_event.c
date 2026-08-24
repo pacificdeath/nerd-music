@@ -4,7 +4,6 @@ static Tone CreateTone(uint8_t note, uint8_t octave) {
         .octave = octave,
         .frequency = 0.0f,
         .sineIndex = 0.0f,
-        .volume = 1.0f,
     };
 }
 
@@ -32,6 +31,11 @@ static MusicalEvent GenerateToneEvent() {
 
 static void InitMusicalEvent(MusicalEvent *event, uint8_t duration, uint8_t note, uint8_t octave) {
     event->duration = duration;
+    if (note == SILENCE) {
+        event->toneCount = 0;
+        return;
+    }
+
     event->toneCount = 1;
     event->tones[0] = (Tone){
         .octave = octave,

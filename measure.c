@@ -1,10 +1,3 @@
-MeasurePosition CreateMeasurePosition(int eventIndex, float eventPosition) {
-    return (MeasurePosition) {
-        .eventIndex = eventIndex,
-        .eventPosition = eventPosition,
-    };
-}
-
 // TODO: only compile on debug, measure should always be length DURATION_WHOLE
 static float GetMeasureDuration(const Measure *measure) {
     ASSERT((measure->eventCount) < MEASURE_EVENT_CAPACITY);
@@ -15,18 +8,29 @@ static float GetMeasureDuration(const Measure *measure) {
     return duration;
 }
 
-static bool UpdateMeasurePosition(Measure *measure, uint64_t currentSample) {
-    uint64_t noteStartPosition = measure->startSample;
-    for (int eventIndex = 0; eventIndex < MEASURE_EVENT_CAPACITY; eventIndex++) {
-        uint64_t noteDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
-        uint64_t noteEndPosition = noteStartPosition + noteDuration;
-        if (noteEndPosition < currentSample) {
-            // skip until we find the earliest event where the end of the note is later than current sample
-            noteStartPosition += noteDuration;
+static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample) {
+    ASSERT(measureIndex < MEASURE_TOTAL);
+
+    unsigned int eventStartSample = 0;
+    for (int eventIndex = 0; eventIndex < measure->eventCount; eventIndex++) {
+        unsigned int eventDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
+        unsigned int eventEndSample = eventStartSample + eventDuration;
+        if (currentSample >= eventEndSample) {
+            // skip elapsed events
+            eventStartSample = eventEndSample;
             continue;
         }
-        measure->position.eventIndex = eventIndex;
-        measure->position.eventPosition = (float)(currentSample - noteStartPosition) / (float)(noteEndPosition - noteStartPosition);
+
+        MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
+
+        float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
+
+        // For visualization on main thread
+        atomic_store(&measurePlaybackState->eventIndex, eventIndex);
+        atomic_store(&measurePlaybackState->cursorXPosition, cursorXPosition);
+        measurePlaybackState->eventStartSample = eventStartSample;
+        measurePlaybackState->eventEndSample = eventEndSample;
+
         return true;
     }
 
@@ -34,17 +38,17 @@ static bool UpdateMeasurePosition(Measure *measure, uint64_t currentSample) {
     return false;
 }
 
-static Measure GenerateMeasureWithRepeatingRhythms(const Measure *previousMeasure, int size, int times) {
-    Measure measure = {0};
+static void GenerateMeasureWithRepeatingRhythms(Measure *measure, int size, int times) {
+    *measure = (Measure){0};
 
     int duration = 0;
     int eventsPerSize;
     for (eventsPerSize = 0; eventsPerSize < size; eventsPerSize++) {
-        measure.events[eventsPerSize] = GenerateToneEvent();
-        duration += measure.events[eventsPerSize].duration;
+        measure->events[eventsPerSize] = GenerateToneEvent();
+        duration += measure->events[eventsPerSize].duration;
         if (duration >= size) {
             int overflow = (duration - size);
-            measure.events[eventsPerSize].duration -= overflow;
+            measure->events[eventsPerSize].duration -= overflow;
             duration -= overflow;
             eventsPerSize++;
             break;
@@ -56,66 +60,51 @@ static Measure GenerateMeasureWithRepeatingRhythms(const Measure *previousMeasur
     for (int eventIndex = 0; eventIndex < eventsPerSize; eventIndex++) {
         // this is a duration in the first "size" that will dictate the rhythm of
         // durations with the same index relative to their "size"
-        int masterDuration = measure.events[eventIndex].duration;
+        int masterDuration = measure->events[eventIndex].duration;
         for (int timeIndex = 1; timeIndex < times; timeIndex++) {
             int offsetEventIndex = (timeIndex * eventsPerSize) + eventIndex;
             // TODO: this sets duration twice
-            measure.events[offsetEventIndex] = GenerateToneEvent();
-            measure.events[offsetEventIndex].duration = masterDuration;
+            measure->events[offsetEventIndex] = GenerateToneEvent();
+            measure->events[offsetEventIndex].duration = masterDuration;
         }
     }
 
-    measure.eventCount = eventsPerSize * times;
-    if (previousMeasure != NULL) {
-        measure.startSample = previousMeasure->startSample + MusicalEventDurationToSampleDuration(DURATION_WHOLE);
-    } else {
-        // initialization by passing null to this function
-        measure.startSample = 0;
-    }
-    measure.position.eventIndex = 0;
-    measure.position.eventPosition = 0.0f;
-
-    return measure;
+    measure->eventCount = eventsPerSize * times;
 }
 
-static Measure GenerateMelodyMeasure(const Measure *previousMeasure) {
+static void GenerateMelodyMeasure(Measure *measure) {
     switch (NextRandom() % 3) {
         case 0: // full random
-            return GenerateMeasureWithRepeatingRhythms(previousMeasure, DURATION_WHOLE, 1);
+            GenerateMeasureWithRepeatingRhythms(measure, DURATION_WHOLE, 1);
+            return;
         case 1: // rythmic motif x 2
-            return GenerateMeasureWithRepeatingRhythms(previousMeasure, DURATION_HALF, 2);
+            GenerateMeasureWithRepeatingRhythms(measure, DURATION_HALF, 2);
+            return;
         case 2: // rythmic motif x 4
-            return GenerateMeasureWithRepeatingRhythms(previousMeasure, DURATION_4TH, 4);
+            GenerateMeasureWithRepeatingRhythms(measure, DURATION_4TH, 4);
+            return;
         default:
-            ASSERT(false); return (Measure){0};
+            ASSERT(false);
+            return;
     }
 }
 
-static Measure GenerateHarmonyMeasure(const Measure *previousMeasure) {
-    Measure measure;
-    if (previousMeasure != NULL) {
-        measure.startSample = previousMeasure->startSample + MusicalEventDurationToSampleDuration(DURATION_WHOLE);
-    } else {
-        // initialization by passing null to this function
-        measure.startSample = 0;
-    }
-    measure.eventCount = 12;
+static void GenerateHarmonyMeasure(Measure *measure) {
+    measure->eventCount = 12;
     const int octave = 4;
     for (int i = 0; i < 2; i++) {
-        int offset = i * (measure.eventCount / 2);
-        InitMusicalEvent(&measure.events[0 + offset], DURATION_8TH, NOTE_C, octave);
-        InitMusicalEvent(&measure.events[1 + offset], DURATION_16TH, NOTE_E, octave);
-        AppendMusicalEvent(&measure.events[1 + offset], NOTE_G, octave);
-        InitMusicalEvent(&measure.events[2 + offset], DURATION_16TH, SILENCE, octave);
+        int offset = i * (measure->eventCount / 2);
+        InitMusicalEvent(&measure->events[0 + offset], DURATION_8TH, NOTE_C, octave);
+        InitMusicalEvent(&measure->events[1 + offset], DURATION_16TH, NOTE_E, octave);
+        AppendMusicalEvent(&measure->events[1 + offset], NOTE_G, octave);
+        InitMusicalEvent(&measure->events[2 + offset], DURATION_16TH, SILENCE, octave);
 
-        InitMusicalEvent(&measure.events[3 + offset], DURATION_8TH, NOTE_G, octave - 1);
-        InitMusicalEvent(&measure.events[4 + offset], DURATION_16TH, NOTE_E, octave);
-        AppendMusicalEvent(&measure.events[4 + offset], NOTE_G, octave);
-        InitMusicalEvent(&measure.events[5 + offset], DURATION_16TH, SILENCE, octave);
+        InitMusicalEvent(&measure->events[3 + offset], DURATION_8TH, NOTE_G, octave - 1);
+        InitMusicalEvent(&measure->events[4 + offset], DURATION_16TH, NOTE_E, octave);
+        AppendMusicalEvent(&measure->events[4 + offset], NOTE_G, octave);
+        InitMusicalEvent(&measure->events[5 + offset], DURATION_16TH, SILENCE, octave);
     }
 
-    ASSERT(GetMeasureDuration(&measure) == DURATION_WHOLE);
-
-    return measure;
+    ASSERT(GetMeasureDuration(measure) == DURATION_WHOLE);
 }
 

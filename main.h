@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <math.h>
+#include <stdatomic.h>
+
 #include <stdint.h>
 
 #include "raylib.h"
@@ -13,10 +15,15 @@
 
 // defines:
 
+#define MIN(a, b) ((a)<(b)?(a):(b))
+
 #define AUDIO_STREAM_SIZE 4096
 #define SAMPLE_RATE 44100
 #define SAMPLE_SIZE 16
 #define CHANNELS 1
+
+// TODO: later this might be configurable?
+#define EVENT_FADE_SAMPLES (SAMPLE_RATE * 0.05f)
 
 #define DURATION_16TH (MEASURE_EVENT_CAPACITY / 16)
 #define DURATION_8TH (MEASURE_EVENT_CAPACITY / 8)
@@ -35,6 +42,11 @@
 #define SCALE_HARMONIC_MINOR    {0, 2, 3, 5, 7, 8, 11}
 #define SCALE_MELODIC_MINOR     {0, 2, 3, 5, 7, 9, 11}
 
+#define SEQUENCER_LOWEST_OCTAVE 2
+#define SEQUENCER_HIGHEST_OCTAVE 6
+#define SEQUENCER_OCTAVE_COUNT (SEQUENCER_HIGHEST_OCTAVE - SEQUENCER_LOWEST_OCTAVE + 1)
+
+
 #define MUSICAL_EVENT_MAX_TONES 4
 
 #define MEASURE_EVENT_CAPACITY 16
@@ -45,6 +57,18 @@
 #define MEASURE_FLAG_MUTED (1 << 0)
 
 // enums:
+
+enum {
+    DEFAULT_AUDIO_BACK_BUFFER_INDEX,
+    DEFAULT_AUDIO_FRONT_BUFFER_INDEX,
+    AUDIO_BUFFER_COUNT,
+};
+
+enum {
+    DEFAULT_MIRROR_BACK_BUFFER_INDEX,
+    DEFAULT_MIRROR_FRONT_BUFFER_INDEX,
+    MIRROR_BUFFER_COUNT,
+};
 
 enum {
     NOTE_A,
@@ -83,8 +107,13 @@ typedef struct Tone {
     // audio thread data
     float frequency;
     float sineIndex;
-    float volume;
 } Tone;
+
+typedef struct Chord {
+    uint8_t root;
+    uint8_t third;
+    uint8_t fifth;
+} Chord;
 
 // this is used for both singular tones and multi-tone chords
 typedef struct MusicalEvent {
@@ -93,31 +122,61 @@ typedef struct MusicalEvent {
     int toneCount;
 } MusicalEvent;
 
-// position between 0 -> 1 where 0 is start of tone and 1 is end of tone
-typedef struct MeasurePosition {
-    int eventIndex;
-    float eventPosition;
-} MeasurePosition;
-
 typedef struct Measure {
     int flags;
-    uint64_t startSample;
     MusicalEvent events[MEASURE_EVENT_CAPACITY];
     int eventCount;
-    MeasurePosition position;
+    Chord chord;
 } Measure;
 
-typedef struct State {
+typedef struct MeasurePlaybackState {
+    _Atomic(int) eventIndex;
+    _Atomic(float) cursorXPosition;
+
+    // use only on audio thread
+    unsigned int eventStartSample;
+    unsigned int eventEndSample;
+} MeasurePlaybackState;
+
+typedef struct MusicBuffer {
     Measure measures[MEASURE_TOTAL];
-    int32_t bigBuffer[AUDIO_STREAM_SIZE];
+} MusicBuffer;
+
+typedef struct State {
     // this must be greater than zero for the randomness to work properly
     // TODO: is this guaranteed now?
     uint64_t randomState;
-    uint64_t currentSample;
+
+    // containing mirrorFrontBuffer, mirrorBackBuffer
+    MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT];
+
+    int mirrorBackBufferIndex;
+    int mirrorFrontBufferIndex;
 } State;
 
-// hooray! global variables
-static State *state;
+typedef struct SharedState {
+    _Atomic(bool) isAudioBackBufferPrepared;
+
+    // main thread should only modify if .atomic.isAudioBackBufferPrepared is false
+    // audio thread should only modify if .atomic.isAudioBackBufferPrepared is true
+    int audioBackBufferIndex;
+
+    // containing audioFrontBuffer, audioBackBuffer
+    MusicBuffer audioBuffers[AUDIO_BUFFER_COUNT];
+
+    MeasurePlaybackState measurePlaybackStates[MEASURE_TOTAL];
+} SharedState;
+
+typedef struct AudioThreadState {
+    int audioFrontBufferIndex;
+    unsigned int currentSample;
+    int32_t bigBuffer[AUDIO_STREAM_SIZE];
+} AudioThreadState;
+
+// TODO: the non shared state pointer can be declared in main
+static State *state = NULL;
+static SharedState *sharedState = NULL;
+static AudioThreadState *audioThreadState = NULL;
 
 // common functions
 
@@ -128,5 +187,17 @@ static uint64_t NextRandom() {
     x ^= x << 17;
     state->randomState = x;
     return x;
+}
+
+// TODO: debug only
+static void dbgrec(int index, Color color) {
+    int padding = 5;
+    int side = 20;
+    DrawRectangle((side + padding) * index, padding, side, side, color);
+}
+
+// TODO: debug only
+static void dbgtext(int index, const char *text, Color color) {
+    DrawText(text, 5, 5 + (index * 40), 20, color);
 }
 
