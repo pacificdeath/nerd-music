@@ -26,8 +26,8 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
         float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
 
         // For visualization on main thread
-        atomic_store(&measurePlaybackState->eventIndex, eventIndex);
-        atomic_store(&measurePlaybackState->cursorXPosition, cursorXPosition);
+        atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->cursorXPosition, cursorXPosition, memory_order_relaxed);
         measurePlaybackState->eventStartSample = eventStartSample;
         measurePlaybackState->eventEndSample = eventEndSample;
 

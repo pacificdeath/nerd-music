@@ -75,7 +75,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
         }
 
         if (shouldBufferSwap) {
-            bool isAudioBackBufferPrepared = atomic_load(&sharedState->isAudioBackBufferPrepared);
+            bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
             if (!isAudioBackBufferPrepared) {
                 // there seems to be no more music in the world
                 goto NoMusicLeft;
@@ -83,7 +83,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             SwapBuffers(&sharedState->audioBackBufferIndex, &audioThreadState->audioFrontBufferIndex);
             musicBuffer = GetAudioFrontBuffer();
-            atomic_store(&sharedState->isAudioBackBufferPrepared, false);
+            atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, false, memory_order_release);
             for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
                 measureFrameIndices[measureIndex] = 0;
             }
@@ -102,7 +102,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
-            const int eventIndex = atomic_load(&measurePlaybackState->eventIndex);
+            const int eventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
             MusicalEvent *event = &measure->events[eventIndex];
 
             const unsigned int eventStartSample = measurePlaybackState->eventStartSample;
@@ -181,7 +181,7 @@ NoMusicLeft:
 }
 
 void update() {
-    bool isAudioBackBufferPrepared = atomic_load(&sharedState->isAudioBackBufferPrepared);
+    bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
 
     if (!isAudioBackBufferPrepared) {
         // the audio thread has swapped the audio front and back buffers,
@@ -210,7 +210,7 @@ void update() {
         *mirrorBackBuffer = *audioBackBuffer;
 
         // signal that the audio thread can start using this thing
-        atomic_store(&sharedState->isAudioBackBufferPrepared, true);
+        atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, true, memory_order_release);
     }
 }
 
@@ -225,8 +225,8 @@ void render() {
         const Measure *measure = &visualBuffer->measures[measureIndex];
         const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
-        const float cursorXPosition = atomic_load(&measurePlaybackState->cursorXPosition);
-        const int currentEventIndex = atomic_load(&measurePlaybackState->eventIndex);
+        const float cursorXPosition = atomic_load_explicit(&measurePlaybackState->cursorXPosition, memory_order_relaxed);
+        const int currentEventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
 
         Rectangle measureBackground;
         measureBackground.x = 0;
