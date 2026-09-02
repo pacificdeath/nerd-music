@@ -19,7 +19,7 @@ catch_errors() {
 }
 
 OUTPUT_EXE="./nerd-music.exe"
-INPUT_C="./main.c"
+INPUT_C="./src/main.c"
 
 ARGS=()
 if $DEBUG; then
