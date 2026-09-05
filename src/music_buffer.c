@@ -3,6 +3,14 @@ static void InitMusicBuffers() {
     audioThreadState->audioFrontBufferIndex = DEFAULT_AUDIO_FRONT_BUFFER_INDEX;
     state->mirrorBackBufferIndex = DEFAULT_MIRROR_BACK_BUFFER_INDEX;
     state->mirrorFrontBufferIndex = DEFAULT_MIRROR_FRONT_BUFFER_INDEX;
+
+    // TODO: temporary scales and chords:
+    Scale scale = CreateScaleFromType(NOTE_C, SCALE_MAJOR);
+    Chord chord = CreateChordFromScaleDegree(scale, 0);
+    sharedState->audioBuffers[sharedState->audioBackBufferIndex].scale = scale;
+    sharedState->audioBuffers[sharedState->audioBackBufferIndex].chord = chord;
+    sharedState->audioBuffers[audioThreadState->audioFrontBufferIndex].scale = scale;
+    sharedState->audioBuffers[audioThreadState->audioFrontBufferIndex].chord = chord;
 }
 
 static MusicBuffer *GetAudioBackBuffer() {

@@ -1,17 +1,26 @@
 #include "main.h"
 
+#include "menu.c"
+#include "tone.c"
+#include "chord.c"
+#include "scale.c"
 #include "music_buffer.c"
 #include "musical_event.c"
 #include "measure.c"
 
-static float NoteToFrequency(int note, int octave) {
-    int semitoneIndex = note + (octave - 4) * 12;
+#ifdef DEBUG
+#include "test.c"
+#endif
+
+static float NoteToFrequency(int note) {
+    float semitoneIndex = note - 48.0f;
     return 440.0f * powf(2.0f, semitoneIndex / 12.0f);
 }
 
-static float MoveTowards(float current, float target, float multiplier) {
-    return target + (current - target) * multiplier;
-}
+// used before for sliding pitch and stuff, maybe revisit
+// static float MoveTowards(float current, float target, float multiplier) {
+//     return target + (current - target) * multiplier;
+// }
 
 static void AudioInputCallback(void *buffer, unsigned int frames) {
     for (unsigned int i = 0; i < frames; i++) {
@@ -46,7 +55,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             Measure *measure = &musicBuffer->measures[measureIndex];
 
-            if (HAS_FLAG(measure->flags, MEASURE_FLAG_MUTED)) {
+            if (hasFlag(measure->flags, MEASURE_FLAG_MUTED)) {
                 measureSamplesObtained[measureIndex] = true;
                 continue;
             }
@@ -112,7 +121,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
                 Tone *tone = &event->tones[toneIndex];
 
                 float sineIndex = tone->sineIndex;
-                float frequency = NoteToFrequency((uint8_t)tone->note, tone->octave);
+                float frequency = NoteToFrequency(tone->note);
 
                 float incr = frequency / (float)SAMPLE_RATE;
 
@@ -161,7 +170,7 @@ NoMusicLeft:
     int nonMutedMeasures = 0;
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
         const Measure *measure = &musicBuffer->measures[measureIndex];
-        if (!HAS_FLAG(measure->flags, MEASURE_FLAG_MUTED)) {
+        if (!hasFlag(measure->flags, MEASURE_FLAG_MUTED)) {
             nonMutedMeasures++;
         }
     }
@@ -180,7 +189,20 @@ NoMusicLeft:
     audioThreadState->currentSample = measureFrameIndices[0];
 }
 
-void update() {
+void Update() {
+    bool ctrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    if (ctrlDown) {
+        if (IsKeyPressed(KEY_ONE)) {
+            state->viewFlags ^= VIEW_FLAG_MELODY;
+        }
+        if (IsKeyPressed(KEY_TWO)) {
+            state->viewFlags ^= VIEW_FLAG_HARMONY;
+        }
+        if (IsKeyPressed(KEY_THREE)) {
+            state->viewFlags ^= VIEW_FLAG_MENU;
+        }
+    }
+
     bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
 
     if (!isAudioBackBufferPrepared) {
@@ -197,7 +219,7 @@ void update() {
             Measure *measure = &audioBackBuffer->measures[measureIndex];
             switch (measureIndex) {
                 case MEASURE_MELODY:
-                    GenerateMelodyMeasure(measure);
+                    GenerateMelodyMeasure(audioBackBuffer, measure);
                     break;
                 case MEASURE_HARMONY:
                     GenerateHarmonyMeasure(measure);
@@ -212,16 +234,48 @@ void update() {
         // signal that the audio thread can start using this thing
         atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, true, memory_order_release);
     }
+
+    const bool hasMelodyView = hasFlag(state->viewFlags, VIEW_FLAG_MELODY);
+    const bool hasHarmonyView = hasFlag(state->viewFlags, VIEW_FLAG_HARMONY);
+    const bool hasMenuView = hasFlag(state->viewFlags, VIEW_FLAG_MENU);
+
+    const int visibleViews = (hasMelodyView ? 1 : 0) + (hasHarmonyView ? 1 : 0) + (hasMenuView ? 1 : 0);
+
+    state->viewHeight = (visibleViews > 0) ? (GetScreenHeight() / visibleViews) : 0.0f;
+
+    Rectangle menuOuterRectangle = {
+        .x = 0,
+        .y = (hasMelodyView ? state->viewHeight : 0.0f) + (hasHarmonyView ? state->viewHeight : 0.0f),
+        .width = GetScreenWidth(),
+        .height = state->viewHeight,
+    };
+
+    MenuUpdate(&state->menu, menuOuterRectangle);
 }
 
-void render() {
+void Render() {
     BeginDrawing();
 
     ClearBackground((Color){0,0,0,255});
 
     const MusicBuffer *visualBuffer = GetMirrorFrontBuffer();
 
+    float viewStartY = 0;
+
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
+        switch (measureIndex) {
+            case MEASURE_MELODY:
+                if (!hasFlag(state->viewFlags, VIEW_FLAG_MELODY)) {
+                    continue;
+                }
+                break;
+            case MEASURE_HARMONY:
+                if (!hasFlag(state->viewFlags, VIEW_FLAG_HARMONY)) {
+                    continue;
+                }
+                break;
+        }
+
         const Measure *measure = &visualBuffer->measures[measureIndex];
         const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
@@ -230,28 +284,37 @@ void render() {
 
         Rectangle measureBackground;
         measureBackground.x = 0;
-        measureBackground.y = (GetScreenHeight() / MEASURE_TOTAL) * measureIndex;
+        measureBackground.y = viewStartY;
         measureBackground.width = GetScreenWidth();
-        measureBackground.height = (GetScreenHeight() / MEASURE_TOTAL);
+        measureBackground.height = state->viewHeight;
+
+        viewStartY += state->viewHeight;
 
         Color backgroundColor;
         if (measureIndex == 0) {
-            backgroundColor = DARKGREEN;
+            backgroundColor = COLOR_MEASURE_BG;
         } else {
-            backgroundColor = DARKBLUE;
+            backgroundColor = COLOR_MEASURE_BG;
         }
 
         DrawRectangleRec(measureBackground, backgroundColor);
         DrawRectangleLinesEx(measureBackground, 2, BLACK);
 
-        const float eventHeight = measureBackground.height / (SEQUENCER_OCTAVE_COUNT * NOTE_COUNT);
+        const float eventHeight = measureBackground.height / (SEQUENCER_OCTAVE_COUNT * NOTES_PER_OCTAVE);
 
         float eventOffset = 0.0f;
         for (int eventIndex = 0; eventIndex < measure->eventCount; eventIndex++) {
             const MusicalEvent *event = &measure->events[eventIndex];
             float eventWidth = ((float)event->duration / (float)DURATION_WHOLE) * measureBackground.width;
 
-            bool isCursorAtEvent = eventIndex == currentEventIndex;
+            int cursorTimeDimension;
+            if (eventIndex < currentEventIndex) {
+                cursorTimeDimension = CURSOR_AT_PAST_EVENT;
+            } else if (eventIndex == currentEventIndex) {
+                cursorTimeDimension = CURSOR_AT_CURRENT_EVENT;
+            } else {
+                cursorTimeDimension = CURSOR_AT_FUTURE_EVENT;
+            }
 
             for (int toneIndex = 0; toneIndex < event->toneCount; toneIndex++) {
                 Tone tone = event->tones[toneIndex];
@@ -259,18 +322,43 @@ void render() {
                 if (tone.note != SILENCE) {
                     Rectangle rectangle;
                     rectangle.x = measureBackground.x + eventOffset;
-                    int pitch = ((int)tone.octave - SEQUENCER_LOWEST_OCTAVE) * NOTE_COUNT + (int)tone.note;
-                    rectangle.y = measureBackground.y + measureBackground.height - (pitch + 1) * eventHeight;
+
+                    Color inactiveColor;
+                    Color activeColor;
+                    if (IsNoteInChord(visualBuffer->chord, tone.note)) {
+                        activeColor = COLOR_CHORD_NOTE_ACTIVE;
+                        inactiveColor = COLOR_CHORD_NOTE_INACTIVE;
+                    } else if (IsNoteInScale(visualBuffer->scale, tone.note)) {
+                        activeColor = COLOR_SCALE_NOTE_ACTIVE;
+                        inactiveColor = COLOR_SCALE_NOTE_INACTIVE;
+                    } else {
+                        activeColor = COLOR_CHROMATIC_NOTE_ACTIVE;
+                        inactiveColor = COLOR_CHROMATIC_NOTE_INACTIVE;
+                    }
+
+                    rectangle.y = measureBackground.y + measureBackground.height - (tone.note + 1) * eventHeight;
 
                     rectangle.width = eventWidth;
                     rectangle.height = eventHeight;
 
-                    Color color = isCursorAtEvent ? GREEN : RED;
-                    DrawRectangleRec(rectangle, color);
+                    switch (cursorTimeDimension) {
+                        case CURSOR_AT_PAST_EVENT:
+                            DrawRectangleRec(rectangle, inactiveColor);
+                            break;
+                        case CURSOR_AT_CURRENT_EVENT:
+                            DrawRectangleLinesEx(rectangle, 1, inactiveColor);
+                            Rectangle progressRectangle = rectangle;
+                            progressRectangle.width *= cursorXPosition;
+                            DrawRectangleRec(progressRectangle, activeColor);
+                            break;
+                        case CURSOR_AT_FUTURE_EVENT:
+                            DrawRectangleLinesEx(rectangle, 1, inactiveColor);
+                            break;
+                    }
                 }
             }
 
-            if (isCursorAtEvent) {
+            if (cursorTimeDimension == CURSOR_AT_CURRENT_EVENT) {
                 Vector2 start = {
                     eventOffset + (cursorXPosition * eventWidth),
                     measureBackground.y,
@@ -286,16 +374,26 @@ void render() {
         }
     }
 
+    MenuRender(&state->menu);
+
     EndDrawing();
 }
 
 int main() {
     state = (State *)calloc(sizeof(State), 1);
+#ifdef DEBUG
+    RunTests();
+#endif
+
     sharedState = (SharedState *)calloc(sizeof(SharedState), 1);
+    sharedState->bpm = 120.0f;
+
     audioThreadState = (AudioThreadState *)calloc(sizeof(AudioThreadState), 1);
+    state->viewFlags = DEFAULT_VIEW_FLAGS;
 
     InitMusicBuffers();
 
+    SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
     InitWindow(600, 600, "The music program");
     SetTargetFPS(60);
@@ -306,15 +404,13 @@ int main() {
     AudioStream stream = LoadAudioStream(SAMPLE_RATE, SAMPLE_SIZE, CHANNELS);
     SetAudioStreamCallback(stream, AudioInputCallback);
 
-    uint8_t scale[SCALE_CAPACITY] = SCALE_HARMONIC_MINOR;
-
     state->randomState = 90; // TODO
 
     PlayAudioStream(stream);
 
     while (!WindowShouldClose()) {
-        update();
-        render();
+        Update();
+        Render();
     }
 }
 

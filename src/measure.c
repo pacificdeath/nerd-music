@@ -38,17 +38,113 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
     return false;
 }
 
-static void GenerateMeasureWithRepeatingRhythms(Measure *measure, int size, int times) {
+#define MELODY_LOWEST_NOTE (3 * NOTES_PER_OCTAVE)
+#define MELODY_HIGHEST_NOTE (5 * NOTES_PER_OCTAVE)
+static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous, MusicalEvent *result, uint8_t predefinedDuration) {
+    int direction;
+    // TODO: somehow get last tone of previous measure
+
+    int note = (previous == NULL) ? (4 * NOTES_PER_OCTAVE) : previous->tones[0].note;
+
+    if (note < MELODY_LOWEST_NOTE) {
+        direction = 1;
+    } else if (note > MELODY_HIGHEST_NOTE) {
+        direction = -1;
+    } else {
+        direction = ((NextRandom() % 2) == 0) ? 1 : -1;
+    }
+
+    int duration;
+    if (predefinedDuration == 0) {
+        // duration based on note
+        switch (NextRandom() % 3) {
+            default: ASSERT(false); break;
+            case 0: // chord note
+                do {
+                    note += direction;
+                } while (!IsNoteInChord(buffer->chord, note));
+                switch (NextRandom() % 3) {
+                    default: ASSERT(false);
+                    case 0: duration = DURATION_16TH; break;
+                    case 1: duration = DURATION_8TH; break;
+                    case 2: duration = DURATION_4TH; break;
+                }
+                break;
+            case 1: // scale tone
+                do {
+                    note += direction;
+                } while (!IsNoteInScale(buffer->scale, note));
+                switch (NextRandom() % 2) {
+                    default: ASSERT(false);
+                    case 0: duration = DURATION_16TH; break;
+                    case 1: duration = DURATION_8TH; break;
+                }
+                break;
+            case 2: // chromatic tone
+                note += direction;
+                duration = DURATION_16TH;
+                break;
+        }
+    } else {
+        // note based on duration
+        duration = predefinedDuration;
+        int noteType;
+        if (duration <= DURATION_16TH) {
+            switch (NextRandom() % 3) {
+                default: ASSERT(false);
+                case 0: noteType = NOTE_TYPE_CHORD; break;
+                case 1: noteType = NOTE_TYPE_SCALE; break;
+                case 2: noteType = NOTE_TYPE_CHROMATIC; break;
+            }
+        } else if (duration <= DURATION_8TH) {
+            switch (NextRandom() % 2) {
+                default: ASSERT(false);
+                case 0: noteType = NOTE_TYPE_CHORD; break;
+                case 1: noteType = NOTE_TYPE_SCALE; break;
+            }
+        } else {
+            noteType = NOTE_TYPE_CHORD;
+        }
+
+        switch (noteType) {
+            default: ASSERT(false);
+            case NOTE_TYPE_CHORD:
+                do {
+                    note += direction;
+                } while (!IsNoteInChord(buffer->chord, note));
+                break;
+            case NOTE_TYPE_SCALE:
+                do {
+                    note += direction;
+                } while (!IsNoteInScale(buffer->scale, note));
+                break;
+            case NOTE_TYPE_CHROMATIC:
+                note += direction;
+                break;
+        }
+    }
+
+    Tone tone = CreateTone(note);
+
+    InitMusicalEvent(result, tone, duration);
+}
+
+static void GenerateMeasureWithRepeatingRhythms(const MusicBuffer *buffer, Measure *measure, int size, int times) {
     *measure = (Measure){0};
 
     int duration = 0;
     int eventsPerSize;
+    MusicalEvent *previousEvent = NULL;
     for (eventsPerSize = 0; eventsPerSize < size; eventsPerSize++) {
-        measure->events[eventsPerSize] = GenerateToneEvent();
-        duration += measure->events[eventsPerSize].duration;
+        MusicalEvent *currentEvent = &measure->events[eventsPerSize];
+        int noPredefinedDuration = 0;
+        GetNextMelodyEvent(buffer, previousEvent, currentEvent, noPredefinedDuration);
+        previousEvent = currentEvent;
+
+        duration += currentEvent->duration;
         if (duration >= size) {
             int overflow = (duration - size);
-            measure->events[eventsPerSize].duration -= overflow;
+            currentEvent->duration -= overflow;
             duration -= overflow;
             eventsPerSize++;
             break;
@@ -58,30 +154,31 @@ static void GenerateMeasureWithRepeatingRhythms(Measure *measure, int size, int 
     ASSERT((duration * times) == DURATION_WHOLE);
 
     for (int eventIndex = 0; eventIndex < eventsPerSize; eventIndex++) {
-        // this is a duration in the first "size" that will dictate the rhythm of
-        // durations with the same index relative to their "size"
+        // this is an event-duration in the first "size" that will match the
+        // duration of events in other "sizes" with the same event index,
+        // this is to create "rhythmic motifs"
         int masterDuration = measure->events[eventIndex].duration;
         for (int timeIndex = 1; timeIndex < times; timeIndex++) {
             int offsetEventIndex = (timeIndex * eventsPerSize) + eventIndex;
-            // TODO: this sets duration twice
-            measure->events[offsetEventIndex] = GenerateToneEvent();
-            measure->events[offsetEventIndex].duration = masterDuration;
+            MusicalEvent *currentEvent = &measure->events[offsetEventIndex];
+            GetNextMelodyEvent(buffer, previousEvent, currentEvent, masterDuration);
+            previousEvent = currentEvent;
         }
     }
 
     measure->eventCount = eventsPerSize * times;
 }
 
-static void GenerateMelodyMeasure(Measure *measure) {
+static void GenerateMelodyMeasure(const MusicBuffer *buffer, Measure *measure) {
     switch (NextRandom() % 3) {
         case 0: // full random
-            GenerateMeasureWithRepeatingRhythms(measure, DURATION_WHOLE, 1);
+            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_WHOLE, 1);
             return;
         case 1: // rythmic motif x 2
-            GenerateMeasureWithRepeatingRhythms(measure, DURATION_HALF, 2);
+            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_HALF, 2);
             return;
         case 2: // rythmic motif x 4
-            GenerateMeasureWithRepeatingRhythms(measure, DURATION_4TH, 4);
+            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_4TH, 4);
             return;
         default:
             ASSERT(false);
@@ -90,19 +187,20 @@ static void GenerateMelodyMeasure(Measure *measure) {
 }
 
 static void GenerateHarmonyMeasure(Measure *measure) {
-    measure->eventCount = 12;
-    const int octave = 4;
-    for (int i = 0; i < 2; i++) {
-        int offset = i * (measure->eventCount / 2);
-        InitMusicalEvent(&measure->events[0 + offset], DURATION_8TH, NOTE_C, octave);
-        InitMusicalEvent(&measure->events[1 + offset], DURATION_16TH, NOTE_E, octave);
-        AppendMusicalEvent(&measure->events[1 + offset], NOTE_G, octave);
-        InitMusicalEvent(&measure->events[2 + offset], DURATION_16TH, SILENCE, octave);
+    measure->eventCount = 24;
+    const int octave = 3;
+    const int reps = 2;
+    for (int i = 0; i < reps; i++) {
+        int offset = i * (measure->eventCount / reps);
+        InitMusicalEvent(&measure->events[0 + offset], CreateToneWithOctave(NOTE_C, octave), DURATION_8TH);
+        InitMusicalEvent(&measure->events[1 + offset], CreateToneWithOctave(NOTE_E, octave), DURATION_16TH);
+        AppendMusicalEvent(&measure->events[1 + offset], CreateToneWithOctave(NOTE_G, octave));
+        InitMusicalEvent(&measure->events[2 + offset], CreateTone(SILENCE), DURATION_16TH);
 
-        InitMusicalEvent(&measure->events[3 + offset], DURATION_8TH, NOTE_G, octave - 1);
-        InitMusicalEvent(&measure->events[4 + offset], DURATION_16TH, NOTE_E, octave);
-        AppendMusicalEvent(&measure->events[4 + offset], NOTE_G, octave);
-        InitMusicalEvent(&measure->events[5 + offset], DURATION_16TH, SILENCE, octave);
+        InitMusicalEvent(&measure->events[3 + offset], CreateToneWithOctave(NOTE_G, octave - 1), DURATION_8TH);
+        InitMusicalEvent(&measure->events[4 + offset], CreateToneWithOctave(NOTE_E, octave), DURATION_16TH);
+        AppendMusicalEvent(&measure->events[4 + offset], CreateToneWithOctave(NOTE_G, octave));
+        InitMusicalEvent(&measure->events[5 + offset], CreateTone(SILENCE), DURATION_16TH);
     }
 
     ASSERT(GetMeasureDuration(measure) == DURATION_WHOLE);
