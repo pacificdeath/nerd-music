@@ -1,12 +1,12 @@
 static Scale CreateScale(
-    uint8_t rootNote,
-    uint8_t i,
-    uint8_t ii,
-    uint8_t iii,
-    uint8_t iv,
-    uint8_t v,
-    uint8_t vi,
-    uint8_t vii
+    int rootNote,
+    int i,
+    int ii,
+    int iii,
+    int iv,
+    int v,
+    int vi,
+    int vii
 ) {
     Scale scale = {0};
 
@@ -37,6 +37,15 @@ static Scale CreateScaleFromType(int rootNote, int scaleType) {
     }
 }
 
+static bool ScaleEquals(Scale scale1, Scale scale2) {
+    for (int i = 0; i < SCALE_NOTE_CAPACITY; i++) {
+        if (scale1.notes[i] != scale2.notes[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool IsNoteInScale(Scale scale, int note) {
     note = NoOctave(note);
     for (int i = 0; i < SCALE_NOTE_CAPACITY; i++) {
@@ -47,33 +56,35 @@ static bool IsNoteInScale(Scale scale, int note) {
     return false;
 }
 
-// static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
-//     Chord candidates[SCALE_NOTE_CAPACITY];
-//     int nicenessLevels[SCALE_NOTE_CAPACITY];
-//     int totalNiceness = 0;
-//
-//     for (int i = 0; i < SCALE_NOTE_CAPACITY; i++) {
-//         candidates[i] = CreateChordFromScaleDegree(scale, i);
-//
-//         int niceness = GetChordProgressionNicenessLevel(currentChord, candidates[i]);
-//         nicenessLevels[i] = niceness;
-//         totalNiceness += niceness;
-//     }
-//
-//     uint64_t random = NextRandom() % totalNiceness;
-//
-//     int chordIndex = 0;
-//     int chordNiceness = nicenessLevels[0];
-//     for (int i = 0; i < random; i++) {
-//         if (i < chordNiceness) {
-//             continue;
-//         }
-//
-//         chordIndex++;
-//         ASSERT(chordIndex < SCALE_NOTE_CAPACITY);
-//         chordNiceness += nicenessLevels[chordIndex];
-//     }
-//
-//     return candidates[chordIndex];
-// }
+// TODO: this belongs probably in another file, I forget that this is found in here
+// TODO: need transitional chords like AMaj->A#Dim->BMaj or secondary dominants
+static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
+    Chord candidates[SCALE_NOTE_CAPACITY];
+    int nicenessLevels[SCALE_NOTE_CAPACITY];
+    int totalNiceness = 0;
+
+    for (int i = 0; i < SCALE_NOTE_CAPACITY; i++) {
+        candidates[i] = CreateChordFromScaleDegree(scale, i);
+
+        int niceness = GetChordProgressionNicenessLevel(currentChord, candidates[i]);
+        nicenessLevels[i] = niceness;
+        totalNiceness += niceness;
+    }
+
+    uint64_t random = NextRandom() % totalNiceness;
+
+    int chordIndex = 0;
+    int chordNiceness = nicenessLevels[0];
+    for (int i = 0; i < random; i++) {
+        if (i < chordNiceness) {
+            continue;
+        }
+
+        chordIndex++;
+        ASSERT(chordIndex < SCALE_NOTE_CAPACITY);
+        chordNiceness += nicenessLevels[chordIndex];
+    }
+
+    return candidates[chordIndex];
+}
 

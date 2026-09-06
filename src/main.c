@@ -117,7 +117,10 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
             const unsigned int eventStartSample = measurePlaybackState->eventStartSample;
             const unsigned int eventEndSample = measurePlaybackState->eventEndSample;
 
-            for (uint8_t toneIndex = 0; toneIndex < event->toneCount; toneIndex++) {
+            const unsigned int eventDuration =  MusicalEventDurationToSampleDuration(event->duration);
+            const float eventFadeSamples = eventDuration * 0.25f;
+
+            for (int toneIndex = 0; toneIndex < event->toneCount; toneIndex++) {
                 Tone *tone = &event->tones[toneIndex];
 
                 float sineIndex = tone->sineIndex;
@@ -131,10 +134,10 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
                     unsigned int eventRemaining = eventEndSample - sample;
                     float volume = 1.0f;
 
-                    if (eventAge < EVENT_FADE_SAMPLES) {
-                        volume = (float)eventAge / EVENT_FADE_SAMPLES;
-                    } else if (eventRemaining < EVENT_FADE_SAMPLES) {
-                        volume = (float)eventRemaining / EVENT_FADE_SAMPLES;
+                    if (eventAge < eventFadeSamples) {
+                        volume = (float)eventAge / eventFadeSamples;
+                    } else if (eventRemaining < eventFadeSamples) {
+                        volume = (float)eventRemaining / eventFadeSamples;
                     }
 
                     float triangle = (sineIndex < 0.5f) ? (4.0f * sineIndex - 1.0f) : (3.0f - 4.0f * sineIndex);
@@ -215,6 +218,9 @@ void Update() {
 
         // regenerate into audio back buffer
         MusicBuffer *audioBackBuffer = GetAudioBackBuffer();
+
+        audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, audioBackBuffer->chord);
+
         for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
             Measure *measure = &audioBackBuffer->measures[measureIndex];
             switch (measureIndex) {
@@ -222,7 +228,7 @@ void Update() {
                     GenerateMelodyMeasure(audioBackBuffer, measure);
                     break;
                 case MEASURE_HARMONY:
-                    GenerateHarmonyMeasure(measure);
+                    GenerateHarmonyMeasure(audioBackBuffer, measure);
                     break;
             }
         }
@@ -336,7 +342,10 @@ void Render() {
                         inactiveColor = COLOR_CHROMATIC_NOTE_INACTIVE;
                     }
 
-                    rectangle.y = measureBackground.y + measureBackground.height - (tone.note + 1) * eventHeight;
+                    rectangle.y = measureBackground.y
+                        + measureBackground.height
+                        - ((tone.note + 1) * eventHeight)
+                        + (LOWEST_OCTAVE * NOTES_PER_OCTAVE * eventHeight);
 
                     rectangle.width = eventWidth;
                     rectangle.height = eventHeight;
@@ -386,7 +395,7 @@ int main() {
 #endif
 
     sharedState = (SharedState *)calloc(sizeof(SharedState), 1);
-    sharedState->bpm = 120.0f;
+    sharedState->bpm = 180.0f;
 
     audioThreadState = (AudioThreadState *)calloc(sizeof(AudioThreadState), 1);
     state->viewFlags = DEFAULT_VIEW_FLAGS;

@@ -3,7 +3,7 @@ static unsigned int MusicalEventDurationToSampleDuration(int duration) {
     return quarterNoteSamples * ((float)duration / (float)DURATION_4TH);
 }
 
-static void InitMusicalEvent(MusicalEvent *event, Tone tone, uint8_t duration) {
+static void InitMusicalEvent(MusicalEvent *event, Tone tone, int duration) {
     *event = (MusicalEvent){0};
 
     event->duration = duration;

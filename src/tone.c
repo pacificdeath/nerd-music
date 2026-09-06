@@ -1,10 +1,12 @@
+#define ASSERT_NOTE(note) do {\
+    if (note != SILENCE) {\
+        ASSERT(note > LOWEST_NOTE);\
+        ASSERT(note < HIGHEST_NOTE);\
+    }\
+} while (0)
+
 static Tone CreateTone(int note) {
-#ifdef DEBUG
-    if (note != SILENCE) {
-        ASSERT(note > LOWEST_NOTE);
-        ASSERT(note < HIGHEST_NOTE);
-    }
-#endif
+    ASSERT(note);
     return (Tone) {
         .note = note,
     };
@@ -13,7 +15,7 @@ static Tone CreateTone(int note) {
 static Tone CreateToneWithOctave(int note, int octave) {
     ASSERT(note != SILENCE);
     ASSERT(note < NOTES_PER_OCTAVE);
-    int absoluteNote = NOTE_WITH_OCTAVE(note, octave);
+    int absoluteNote = NoteWithOctave(note, octave);
     return CreateTone(absoluteNote);
 }
 

@@ -73,5 +73,96 @@ static void RunTests() {
         ASSERT(chord.root == NOTE_G_SHARP);
         ASSERT(GetChordFlags(chord) == (FLAG_TRIAD_DIMINISHED | FLAG_CHORD_FULLY_DIMINISHED_7));
     }
+
+    {
+        // chord inversions
+
+        scale = CreateScaleFromType(NOTE_C, SCALE_MAJOR);
+        Chord chord = CreateChordFromScaleDegree(scale, 0);
+        ChordInversion inversion = {0};
+        int lowestNote = 0;
+        int octave = 4;
+
+        bool dontAllow7thBased = false;
+        bool allow7thBased = true;
+
+        // ROOT TRIAD
+        lowestNote = NoteWithOctave(NOTE_C, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, dontAllow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY_NO_SEVENTH);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_C, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_G, octave));
+
+        // FIRST INVERSION TRIAD
+        lowestNote = NoteWithOctave(NOTE_E, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, dontAllow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY_NO_SEVENTH);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_C, octave + 1));
+
+        // SECOND INVERSION TRIAD
+        lowestNote = NoteWithOctave(NOTE_G, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, dontAllow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY_NO_SEVENTH);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_C, octave + 1));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_E, octave + 1));
+
+        // ROOT 7TH CHORD
+        lowestNote = NoteWithOctave(NOTE_C, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_C, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_B, octave + 1));
+
+        // FIRST INVERSION 7TH CHORD
+        lowestNote = NoteWithOctave(NOTE_E, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_B, octave + 1));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_C, octave + 1));
+
+        // SECOND INVERSION 7TH CHORD
+        lowestNote = NoteWithOctave(NOTE_G, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_B, octave + 1));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_C, octave + 1));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_E, octave + 1));
+
+        // THIRD INVERSION 7TH CHORD
+        lowestNote = NoteWithOctave(NOTE_B, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_B, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_C, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_G, octave));
+
+        // SHARP ROOT
+        lowestNote = NoteWithOctave(NOTE_C_SHARP, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_G, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_B, octave + 1));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_C, octave + 1));
+
+        // FLAT 7TH
+        lowestNote = NoteWithOctave(NOTE_B_FLAT, octave);
+        inversion = CreateLowChordInversion(chord, lowestNote, allow7thBased);
+        ASSERT(inversion.noteCount == CHORD_NOTE_CAPACITY);
+        ASSERT(inversion.notes[0] == NoteWithOctave(NOTE_B, octave));
+        ASSERT(inversion.notes[1] == NoteWithOctave(NOTE_C, octave));
+        ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_E, octave));
+        ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_G, octave));
+    }
 }
 

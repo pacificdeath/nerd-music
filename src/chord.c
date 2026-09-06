@@ -13,14 +13,14 @@ static Chord CreateChordFromScaleDegree(Scale scale, int degree) {
     return chord;
 }
 
-// static bool ChordEquals(Chord chord1, Chord chord2) {
-//     for (int i = 0; i < CHORD_NOTE_CAPACITY; i++) {
-//         if (chord1.notes[i] != chord2.notes[i]) {
-//             return false;
-//         }
-//     }
-//     return true;
-// }
+static bool ChordEquals(Chord chord1, Chord chord2) {
+    for (int i = 0; i < CHORD_NOTE_CAPACITY; i++) {
+        if (chord1.notes[i] != chord2.notes[i]) {
+            return false;
+        }
+    }
+    return true;
+}
 
 static bool IsNoteInChord(Chord chord, int note) {
     note = NoOctave(note);
@@ -32,7 +32,7 @@ static bool IsNoteInChord(Chord chord, int note) {
     return false;
 }
 
-static int GetNoteIntervalFromRoot(uint8_t rootNote, uint8_t otherNote) {
+static int GetNoteIntervalFromRoot(int rootNote, int otherNote) {
     if (otherNote < rootNote) {
         otherNote += NOTES_PER_OCTAVE;
     }
@@ -40,6 +40,42 @@ static int GetNoteIntervalFromRoot(uint8_t rootNote, uint8_t otherNote) {
     int diff = otherNote - rootNote;
 
     return diff;
+}
+
+static ChordInversion CreateLowChordInversion(Chord chord, int lowestNote, bool allow7thBased) {
+    ASSERT_NOTE(lowestNote);
+
+    int octave = GetOctave(lowestNote);
+
+    int bestIndex = 0;
+    int bestDistance = NOTES_PER_OCTAVE;
+    const int noteCount = allow7thBased ? CHORD_NOTE_CAPACITY : CHORD_NOTE_CAPACITY_NO_SEVENTH;
+    int notes[CHORD_NOTE_CAPACITY];
+    for (int i = 0; i < noteCount; i++) {
+        int note = NoteWithOctave(chord.notes[i], octave);
+        if (note < lowestNote) {
+            note += NOTES_PER_OCTAVE;
+        }
+        ASSERT(note >= lowestNote);
+        int distance = note - lowestNote;
+        if (distance < bestDistance) {
+            bestIndex = i;
+            bestDistance = distance;
+        }
+        notes[i] = note;
+    }
+    ASSERT(bestDistance < NOTES_PER_OCTAVE);
+
+    ChordInversion inversion = {
+        .noteCount = noteCount,
+    };
+
+    for (int i = 0; i < noteCount; i++) {
+        int relativeIndex = (i + bestIndex) % noteCount;
+        inversion.notes[i] = notes[relativeIndex];
+    }
+
+    return inversion;
 }
 
 static flagtype GetChordFlags(Chord chord) {
@@ -97,36 +133,36 @@ static flagtype GetChordFlags(Chord chord) {
     return flags;
 }
 
-// static int GetChordProgressionNicenessLevel(Chord fromChord, Chord toChord) {
-//     int niceness = 0;
-//
-//     flagtype fromFlags = GetChordFlags(fromChord);
-//     flagtype toFlags = GetChordFlags(toChord);
-//
-//     // SHARED NOTES
-//     for (int i = 0; i < CHORD_NOTE_CAPACITY; i++) {
-//         for (int j = 0; j < CHORD_NOTE_CAPACITY; j++) {
-//             if (fromChord.notes[i] == toChord.notes[j]) {
-//                 niceness++;
-//                 break;
-//             }
-//         }
-//     }
-//
-//     {
-//         // DOMINANT -> TONIC
-//         bool isDominantInterval = GetNoteIntervalFromRoot(fromChord.root, toChord.root) == INTERVAL_PERFECT_FIFTH;
-//         bool toChordIsNotThatDissonant = hasFlag(toFlags, FLAG_TRIAD_MAJOR) || hasFlag(toFlags, FLAG_TRIAD_MINOR);
-//         if (isDominantInterval && toChordIsNotThatDissonant) {
-//             if (hasFlag(fromFlags, FLAG_CHORD_DOMINANT_7))
-//                 niceness += 10;
-//             else if (hasFlag(fromFlags, FLAG_TRIAD_MAJOR)) {
-//                 // it is pretty much a "dominant to tonic" move but its missing the 7th
-//                 niceness += 5;
-//             }
-//         }
-//     }
-//
-//     return niceness;
-// }
+static int GetChordProgressionNicenessLevel(Chord fromChord, Chord toChord) {
+    int niceness = 0;
+
+    flagtype fromFlags = GetChordFlags(fromChord);
+    flagtype toFlags = GetChordFlags(toChord);
+
+    // SHARED NOTES
+    for (int i = 0; i < CHORD_NOTE_CAPACITY; i++) {
+        for (int j = 0; j < CHORD_NOTE_CAPACITY; j++) {
+            if (fromChord.notes[i] == toChord.notes[j]) {
+                niceness++;
+                break;
+            }
+        }
+    }
+
+    {
+        // DOMINANT -> TONIC
+        bool isDominantInterval = GetNoteIntervalFromRoot(fromChord.root, toChord.root) == INTERVAL_PERFECT_FIFTH;
+        bool toChordIsNotThatDissonant = hasFlag(toFlags, FLAG_TRIAD_MAJOR) || hasFlag(toFlags, FLAG_TRIAD_MINOR);
+        if (isDominantInterval && toChordIsNotThatDissonant) {
+            if (hasFlag(fromFlags, FLAG_CHORD_DOMINANT_7))
+                niceness += 10;
+            else if (hasFlag(fromFlags, FLAG_TRIAD_MAJOR)) {
+                // it is pretty much a "dominant to tonic" move but its missing the 7th
+                niceness += 5;
+            }
+        }
+    }
+
+    return niceness;
+}
 

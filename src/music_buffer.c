@@ -5,7 +5,7 @@ static void InitMusicBuffers() {
     state->mirrorFrontBufferIndex = DEFAULT_MIRROR_FRONT_BUFFER_INDEX;
 
     // TODO: temporary scales and chords:
-    Scale scale = CreateScaleFromType(NOTE_C, SCALE_MAJOR);
+    Scale scale = CreateScaleFromType(NOTE_C, SCALE_HARMONIC_MINOR);
     Chord chord = CreateChordFromScaleDegree(scale, 0);
     sharedState->audioBuffers[sharedState->audioBackBufferIndex].scale = scale;
     sharedState->audioBuffers[sharedState->audioBackBufferIndex].chord = chord;

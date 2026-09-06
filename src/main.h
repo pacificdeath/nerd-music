@@ -6,12 +6,14 @@
 
 #include "raylib.h"
 
-// TODO: these debug things should not always be compiled
+#ifdef DEBUG
+#include <stdio.h>
 #define ASSERT(condition)\
     do { if (!(condition)) {\
-        TraceLog(LOG_ERROR, "[you are a horrible person] %s:%i -> (%s)", __FILE__, __LINE__, #condition);\
+        printf("%s:%i: %s", __FILE__, __LINE__, #condition);\
         exit(1);\
     } } while (0)
+#endif
 
 // defines:
 
@@ -21,9 +23,6 @@
 #define SAMPLE_RATE 44100
 #define SAMPLE_SIZE 16
 #define CHANNELS 1
-
-// TODO: later this might be configurable?
-#define EVENT_FADE_SAMPLES (SAMPLE_RATE * 0.05f)
 
 #define DURATION_64TH (MEASURE_EVENT_CAPACITY / 64)
 #define DURATION_32TH (MEASURE_EVENT_CAPACITY / 32)
@@ -63,10 +62,11 @@ typedef uint64_t flagtype;
 
 #define SCALE_NOTE_CAPACITY 7
 #define CHORD_NOTE_CAPACITY 4
+#define CHORD_NOTE_CAPACITY_NO_SEVENTH (CHORD_NOTE_CAPACITY - 1)
 
 #define NOTE_WITH_OCTAVE(note, octave) ((octave * NOTES_PER_OCTAVE) + note)
 #define LOWEST_OCTAVE 2
-#define HIGHEST_OCTAVE 6
+#define HIGHEST_OCTAVE 7
 #define LOWEST_NOTE NOTE_WITH_OCTAVE(0, LOWEST_OCTAVE)
 #define HIGHEST_NOTE NOTE_WITH_OCTAVE((NOTES_PER_OCTAVE-1), HIGHEST_OCTAVE)
 #define SEQUENCER_OCTAVE_COUNT (HIGHEST_OCTAVE - LOWEST_OCTAVE + 1)
@@ -89,6 +89,7 @@ typedef uint64_t flagtype;
 #define COLOR_ACTIVE (1.0f)
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
 #define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
+#define CO()
 // chord visuals
 #define COLOR_CHORD_NOTE_BG COLOR(0,COLOR_BG,0)
 #define COLOR_CHORD_NOTE_INACTIVE COLOR(0,COLOR_INACTIVE,0)
@@ -172,7 +173,7 @@ enum {
 // structs:
 
 typedef struct Tone {
-    uint8_t note;
+    int note;
 
     // audio thread data
     float frequency;
@@ -180,25 +181,30 @@ typedef struct Tone {
 } Tone;
 
 typedef struct Chord {
-    uint8_t rootScaleDegree;
+    int rootScaleDegree;
     union {
         struct {
-            uint8_t root;
-            uint8_t third;
-            uint8_t fifth;
-            uint8_t seventh;
+            int root;
+            int third;
+            int fifth;
+            int seventh;
         };
-        uint8_t notes[CHORD_NOTE_CAPACITY];
+        int notes[CHORD_NOTE_CAPACITY];
     };
 } Chord;
 
+typedef struct ChordInversion {
+    int notes[CHORD_NOTE_CAPACITY];
+    int noteCount; // depends on if it is a triad or 7th chord inversion
+} ChordInversion;
+
 typedef struct Scale {
-    uint8_t notes[SCALE_NOTE_CAPACITY];
+    int notes[SCALE_NOTE_CAPACITY];
 } Scale;
 
 // this is used for both singular tones and multi-tone chords
 typedef struct MusicalEvent {
-    uint8_t duration;
+    int duration;
     Tone tones[MUSICAL_EVENT_MAX_TONES];
     int toneCount;
 } MusicalEvent;
@@ -300,8 +306,16 @@ static uint64_t NextRandom() {
     return x;
 }
 
+static int NoteWithOctave(int note, int octave) {
+    return NOTE_WITH_OCTAVE(note, octave);
+}
+
 static int NoOctave(int note) {
     return note % NOTES_PER_OCTAVE;
+}
+
+static int GetOctave(int note) {
+    return note / NOTES_PER_OCTAVE;
 }
 
 // TODO: debug only

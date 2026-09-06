@@ -38,11 +38,11 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
     return false;
 }
 
-#define MELODY_LOWEST_NOTE (3 * NOTES_PER_OCTAVE)
-#define MELODY_HIGHEST_NOTE (5 * NOTES_PER_OCTAVE)
-static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous, MusicalEvent *result, uint8_t predefinedDuration) {
+// TODO: temporary
+#define MELODY_LOWEST_NOTE (4 * NOTES_PER_OCTAVE)
+#define MELODY_HIGHEST_NOTE ((5 * NOTES_PER_OCTAVE))
+static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous, MusicalEvent *result, int predefinedDuration) {
     int direction;
-    // TODO: somehow get last tone of previous measure
 
     int note = (previous == NULL) ? (4 * NOTES_PER_OCTAVE) : previous->tones[0].note;
 
@@ -126,6 +126,10 @@ static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous
 
     Tone tone = CreateTone(note);
 
+    if (previous != NULL) {
+        ASSERT(previous->tones[0].note != note);
+    }
+
     InitMusicalEvent(result, tone, duration);
 }
 
@@ -135,6 +139,11 @@ static void GenerateMeasureWithRepeatingRhythms(const MusicBuffer *buffer, Measu
     int duration = 0;
     int eventsPerSize;
     MusicalEvent *previousEvent = NULL;
+    // since we are generating the "next" measure, the "previous" measure is actually the current front buffer
+    Measure *oldMeasure = &GetMirrorFrontBuffer()->measures[MEASURE_MELODY];
+    if (oldMeasure->eventCount > 0) {
+        previousEvent = &oldMeasure->events[oldMeasure->eventCount - 1];
+    }
     for (eventsPerSize = 0; eventsPerSize < size; eventsPerSize++) {
         MusicalEvent *currentEvent = &measure->events[eventsPerSize];
         int noPredefinedDuration = 0;
@@ -153,12 +162,13 @@ static void GenerateMeasureWithRepeatingRhythms(const MusicBuffer *buffer, Measu
 
     ASSERT((duration * times) == DURATION_WHOLE);
 
-    for (int eventIndex = 0; eventIndex < eventsPerSize; eventIndex++) {
-        // this is an event-duration in the first "size" that will match the
-        // duration of events in other "sizes" with the same event index,
-        // this is to create "rhythmic motifs"
-        int masterDuration = measure->events[eventIndex].duration;
-        for (int timeIndex = 1; timeIndex < times; timeIndex++) {
+    for (int timeIndex = 1; timeIndex < times; timeIndex++) {
+        for (int eventIndex = 0; eventIndex < eventsPerSize; eventIndex++) {
+            // this is an event-duration in the first "size" that will match the
+            // duration of events in other "sizes" with the same event index,
+            // this is to create "rhythmic motifs"
+            int masterDuration = measure->events[eventIndex].duration;
+
             int offsetEventIndex = (timeIndex * eventsPerSize) + eventIndex;
             MusicalEvent *currentEvent = &measure->events[offsetEventIndex];
             GetNextMelodyEvent(buffer, previousEvent, currentEvent, masterDuration);
@@ -186,20 +196,25 @@ static void GenerateMelodyMeasure(const MusicBuffer *buffer, Measure *measure) {
     }
 }
 
-static void GenerateHarmonyMeasure(Measure *measure) {
+// TODO: temporary
+#define HARMONY_LOWEST_NOTE (3 * NOTES_PER_OCTAVE)
+static void GenerateHarmonyMeasure(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = false;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
     measure->eventCount = 24;
-    const int octave = 3;
     const int reps = 2;
+
     for (int i = 0; i < reps; i++) {
         int offset = i * (measure->eventCount / reps);
-        InitMusicalEvent(&measure->events[0 + offset], CreateToneWithOctave(NOTE_C, octave), DURATION_8TH);
-        InitMusicalEvent(&measure->events[1 + offset], CreateToneWithOctave(NOTE_E, octave), DURATION_16TH);
-        AppendMusicalEvent(&measure->events[1 + offset], CreateToneWithOctave(NOTE_G, octave));
+        InitMusicalEvent(&measure->events[0 + offset], CreateTone(inversion.notes[0]), DURATION_8TH);
+        InitMusicalEvent(&measure->events[1 + offset], CreateTone(inversion.notes[1]), DURATION_16TH);
+        AppendMusicalEvent(&measure->events[1 + offset], CreateTone(inversion.notes[2]));
         InitMusicalEvent(&measure->events[2 + offset], CreateTone(SILENCE), DURATION_16TH);
 
-        InitMusicalEvent(&measure->events[3 + offset], CreateToneWithOctave(NOTE_G, octave - 1), DURATION_8TH);
-        InitMusicalEvent(&measure->events[4 + offset], CreateToneWithOctave(NOTE_E, octave), DURATION_16TH);
-        AppendMusicalEvent(&measure->events[4 + offset], CreateToneWithOctave(NOTE_G, octave));
+        InitMusicalEvent(&measure->events[3 + offset], CreateTone(inversion.notes[2] - NOTES_PER_OCTAVE), DURATION_8TH);
+        InitMusicalEvent(&measure->events[4 + offset], CreateTone(inversion.notes[1]), DURATION_16TH);
+        AppendMusicalEvent(&measure->events[4 + offset], CreateTone(inversion.notes[2]));
         InitMusicalEvent(&measure->events[5 + offset], CreateTone(SILENCE), DURATION_16TH);
     }
 
