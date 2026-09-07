@@ -3,10 +3,12 @@ set -e  # exit on any error
 shopt -s expand_aliases
 
 DEBUG=true
+COMPILE_ONLY=false
 
 for arg in "$@"; do
     case $arg in
-        --release) DEBUG=false ;;
+        -release) DEBUG=false ;;
+        -co) COMPILE_ONLY=true ;;
     esac
 done
 
@@ -43,5 +45,7 @@ ARGS+=(
 gcc "${ARGS[@]}"
 catch_errors
 
-"$OUTPUT_EXE"
-catch_errors
+if ! $COMPILE_ONLY; then
+    "$OUTPUT_EXE"
+    catch_errors
+fi

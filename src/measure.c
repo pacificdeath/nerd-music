@@ -38,13 +38,47 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
     return false;
 }
 
+typedef struct MelodyState {
+    const MusicBuffer *buffer;
+    const MusicalEvent *finalEventInPreviousMeasure;
+    int currentEventIndex;
+    int forceDuration;
+} MelodyState;
+
 // TODO: temporary
 #define MELODY_LOWEST_NOTE (4 * NOTES_PER_OCTAVE)
 #define MELODY_HIGHEST_NOTE ((5 * NOTES_PER_OCTAVE))
-static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous, MusicalEvent *result, int predefinedDuration) {
+static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
     int direction;
 
-    int note = (previous == NULL) ? (4 * NOTES_PER_OCTAVE) : previous->tones[0].note;
+    const Measure *measure = &state->buffer->measures[MEASURE_MELODY];
+    const int eventIndex = state->currentEventIndex;
+
+    const bool isFirstEventInMeasure = (eventIndex == 0);
+    const bool isFirstEventGlobally = isFirstEventInMeasure && (state->finalEventInPreviousMeasure == NULL);
+
+    int note;
+    int previousDuration = 0;
+    int consecutiveEqualDurations = 0;
+
+    if (isFirstEventGlobally) {
+        int lowHighDiff = MELODY_HIGHEST_NOTE - MELODY_LOWEST_NOTE;
+        note = MELODY_LOWEST_NOTE + (NextRandom() % lowHighDiff);
+    } else if (isFirstEventInMeasure) {
+        note = state->finalEventInPreviousMeasure->tones[0].note;
+    } else {
+        int previousEventIndex = eventIndex - 1;
+        const MusicalEvent *previousEvent = &measure->events[previousEventIndex];
+        note = previousEvent->tones[0].note;
+        previousDuration = previousEvent->duration;
+        for (int i = previousEventIndex; i >= 0; i--) {
+            if (measure->events[i].duration == previousDuration) {
+                consecutiveEqualDurations++;
+            } else {
+                break;
+            }
+        }
+    }
 
     if (note < MELODY_LOWEST_NOTE) {
         direction = 1;
@@ -55,39 +89,75 @@ static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous
     }
 
     int duration;
-    if (predefinedDuration == 0) {
-        // duration based on note
-        switch (NextRandom() % 3) {
+    if (state->forceDuration == 0) {
+        // DURATION BASED ON NOTE
+
+        int noteType;
+
+        if (isFirstEventInMeasure) {
+            // first note of every measure is a chord note, will sound intentional probably?
+            noteType = NOTE_TYPE_CHORD;
+        } else {
+            noteType = NextRandom() % NOTE_TYPES_COUNT;
+        }
+
+        switch (noteType) {
             default: ASSERT(false); break;
-            case 0: // chord note
+            case NOTE_TYPE_CHORD:
                 do {
                     note += direction;
-                } while (!IsNoteInChord(buffer->chord, note));
-                switch (NextRandom() % 3) {
-                    default: ASSERT(false);
-                    case 0: duration = DURATION_16TH; break;
-                    case 1: duration = DURATION_8TH; break;
-                    case 2: duration = DURATION_4TH; break;
-                }
+                } while (!IsNoteInChord(state->buffer->chord, note));
                 break;
-            case 1: // scale tone
+            case NOTE_TYPE_SCALE:
                 do {
                     note += direction;
-                } while (!IsNoteInScale(buffer->scale, note));
-                switch (NextRandom() % 2) {
-                    default: ASSERT(false);
-                    case 0: duration = DURATION_16TH; break;
-                    case 1: duration = DURATION_8TH; break;
-                }
+                } while (!IsNoteInScale(state->buffer->scale, note));
                 break;
-            case 2: // chromatic tone
+            case NOTE_TYPE_CHROMATIC:
                 note += direction;
-                duration = DURATION_16TH;
                 break;
         }
+
+        // 16th notes must exist in pairs of 2 at least, otherwise it sounds banana
+        bool force16th = (previousDuration == DURATION_16TH) && ((consecutiveEqualDurations % 2) != 0);
+
+        // 32th notes must exist in pairs of 4 at least, otherwise it sounds banana
+        bool force32th = (previousDuration == DURATION_32TH) && ((consecutiveEqualDurations % 4) != 0);
+
+        if (force32th) {
+            duration = DURATION_32TH;
+        } else if (force16th) {
+            duration = DURATION_16TH;
+        } else {
+            // random duration
+            switch (noteType) {
+                default: ASSERT(false); break;
+                case NOTE_TYPE_CHORD:
+                    switch (NextRandom() % 4) {
+                        default: ASSERT(false);
+                        case 0: duration = DURATION_32TH; break;
+                        case 1: duration = DURATION_16TH; break;
+                        case 2: duration = DURATION_8TH; break;
+                        case 3: duration = DURATION_4TH; break;
+                    }
+                    break;
+                case NOTE_TYPE_SCALE:
+                    switch (NextRandom() % 3) {
+                        default: ASSERT(false);
+                        case 0: duration = DURATION_32TH; break;
+                        case 1: duration = DURATION_16TH; break;
+                        case 2: duration = DURATION_8TH; break;
+                    }
+                    break;
+                case NOTE_TYPE_CHROMATIC:
+                    duration = DURATION_16TH;
+                    break;
+            }
+        }
     } else {
-        // note based on duration
-        duration = predefinedDuration;
+        // NOTE BASED ON DURATION
+
+        duration = state->forceDuration;
         int noteType;
         if (duration <= DURATION_16TH) {
             switch (NextRandom() % 3) {
@@ -111,12 +181,12 @@ static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous
             case NOTE_TYPE_CHORD:
                 do {
                     note += direction;
-                } while (!IsNoteInChord(buffer->chord, note));
+                } while (!IsNoteInChord(state->buffer->chord, note));
                 break;
             case NOTE_TYPE_SCALE:
                 do {
                     note += direction;
-                } while (!IsNoteInScale(buffer->scale, note));
+                } while (!IsNoteInScale(state->buffer->scale, note));
                 break;
             case NOTE_TYPE_CHROMATIC:
                 note += direction;
@@ -126,29 +196,38 @@ static void GetNextMelodyEvent(const MusicBuffer *buffer, MusicalEvent *previous
 
     Tone tone = CreateTone(note);
 
-    if (previous != NULL) {
-        ASSERT(previous->tones[0].note != note);
-    }
-
     InitMusicalEvent(result, tone, duration);
 }
 
-static void GenerateMeasureWithRepeatingRhythms(const MusicBuffer *buffer, Measure *measure, int size, int times) {
+static void GenerateMeasureWithRepeatingRhythms(
+    const MusicBuffer *currentBuffer,
+    const MusicBuffer *previousBuffer,
+    Measure *measure,
+    int size
+) {
     *measure = (Measure){0};
+
+    const int times = DURATION_WHOLE / size;
+    ASSERT(times > 0);
 
     int duration = 0;
     int eventsPerSize;
-    MusicalEvent *previousEvent = NULL;
-    // since we are generating the "next" measure, the "previous" measure is actually the current front buffer
-    Measure *oldMeasure = &GetMirrorFrontBuffer()->measures[MEASURE_MELODY];
+    const Measure *oldMeasure = &previousBuffer->measures[MEASURE_MELODY];
+
+    MelodyState melodyState = {0};
+    melodyState.buffer = currentBuffer;
     if (oldMeasure->eventCount > 0) {
-        previousEvent = &oldMeasure->events[oldMeasure->eventCount - 1];
+        melodyState.finalEventInPreviousMeasure = &oldMeasure->events[oldMeasure->eventCount - 1];
+    } else {
+        melodyState.finalEventInPreviousMeasure = NULL;
     }
+    melodyState.forceDuration = 0;
+
     for (eventsPerSize = 0; eventsPerSize < size; eventsPerSize++) {
+        melodyState.currentEventIndex = eventsPerSize;
         MusicalEvent *currentEvent = &measure->events[eventsPerSize];
-        int noPredefinedDuration = 0;
-        GetNextMelodyEvent(buffer, previousEvent, currentEvent, noPredefinedDuration);
-        previousEvent = currentEvent;
+
+        GetNextMelodyEvent(&melodyState, currentEvent);
 
         duration += currentEvent->duration;
         if (duration >= size) {
@@ -167,33 +246,37 @@ static void GenerateMeasureWithRepeatingRhythms(const MusicBuffer *buffer, Measu
             // this is an event-duration in the first "size" that will match the
             // duration of events in other "sizes" with the same event index,
             // this is to create "rhythmic motifs"
-            int masterDuration = measure->events[eventIndex].duration;
+            melodyState.forceDuration = measure->events[eventIndex].duration;
+            melodyState.currentEventIndex = (timeIndex * eventsPerSize) + eventIndex;
 
-            int offsetEventIndex = (timeIndex * eventsPerSize) + eventIndex;
-            MusicalEvent *currentEvent = &measure->events[offsetEventIndex];
-            GetNextMelodyEvent(buffer, previousEvent, currentEvent, masterDuration);
-            previousEvent = currentEvent;
+            MusicalEvent *currentEvent = &measure->events[melodyState.currentEventIndex];
+            GetNextMelodyEvent(&melodyState, currentEvent);
         }
     }
 
     measure->eventCount = eventsPerSize * times;
 }
 
-static void GenerateMelodyMeasure(const MusicBuffer *buffer, Measure *measure) {
+static void GenerateMelodyMeasure(
+    const MusicBuffer *currentBuffer,
+    const MusicBuffer *previousBuffer,
+    Measure *measure
+) {
+    int duration = 0;
     switch (NextRandom() % 3) {
-        case 0: // full random
-            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_WHOLE, 1);
-            return;
-        case 1: // rythmic motif x 2
-            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_HALF, 2);
-            return;
-        case 2: // rythmic motif x 4
-            GenerateMeasureWithRepeatingRhythms(buffer, measure, DURATION_4TH, 4);
-            return;
-        default:
-            ASSERT(false);
-            return;
+        default: ASSERT(false); return;
+
+        // full random
+        case 0: duration = DURATION_WHOLE; break;
+
+        // rythmic motif x 2
+        case 1: duration = DURATION_HALF; break;
+
+        // rythmic motif x 4
+        case 2: duration = DURATION_4TH; break;
     }
+
+    GenerateMeasureWithRepeatingRhythms(currentBuffer, previousBuffer, measure, duration);
 }
 
 // TODO: temporary

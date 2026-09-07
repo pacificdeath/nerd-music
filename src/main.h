@@ -89,7 +89,6 @@ typedef uint64_t flagtype;
 #define COLOR_ACTIVE (1.0f)
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
 #define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
-#define CO()
 // chord visuals
 #define COLOR_CHORD_NOTE_BG COLOR(0,COLOR_BG,0)
 #define COLOR_CHORD_NOTE_INACTIVE COLOR(0,COLOR_INACTIVE,0)
@@ -99,7 +98,7 @@ typedef uint64_t flagtype;
 #define COLOR_SCALE_NOTE_INACTIVE COLOR(0,COLOR_INACTIVE/2,COLOR_INACTIVE)
 #define COLOR_SCALE_NOTE_ACTIVE COLOR(0,COLOR_ACTIVE/2,COLOR_ACTIVE)
 // chromatic visuals
-#define COLOR_CHROMATIC_NOTE_BG COLOR(COLOR_BG,0,0)
+#define COLOR_CHROMATIC_NOTE_BG COLOR(COLOR_BG,COLOR_BG,COLOR_BG)
 #define COLOR_CHROMATIC_NOTE_INACTIVE COLOR(COLOR_INACTIVE,0,0)
 #define COLOR_CHROMATIC_NOTE_ACTIVE COLOR(COLOR_ACTIVE,0,0)
 
@@ -143,6 +142,7 @@ enum {
     NOTE_TYPE_CHORD,
     NOTE_TYPE_SCALE,
     NOTE_TYPE_CHROMATIC,
+    NOTE_TYPES_COUNT,
 };
 
 enum {
@@ -248,10 +248,6 @@ typedef struct Menu {
 } Menu;
 
 typedef struct State {
-    // this must be greater than zero for the randomness to work properly
-    // TODO: is this guaranteed now?
-    uint64_t randomState;
-
     // containing mirrorFrontBuffer, mirrorBackBuffer
     MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT];
 
@@ -271,6 +267,8 @@ typedef struct SharedState {
     // audio thread should only modify if .atomic.isAudioBackBufferPrepared is true
     int audioBackBufferIndex;
 
+    int audioFrontBufferIndex;
+
     // containing audioFrontBuffer, audioBackBuffer
     MusicBuffer audioBuffers[AUDIO_BUFFER_COUNT];
 
@@ -278,18 +276,13 @@ typedef struct SharedState {
 
     // TODO: customizable at runtime, this has to be atomic basically
     float bpm;
+
+    // this must be greater than zero for the randomness to work properly
+    // TODO: is this guaranteed now?
+    uint64_t randomState;
 } SharedState;
 
-typedef struct AudioThreadState {
-    int audioFrontBufferIndex;
-    unsigned int currentSample;
-    int32_t bigBuffer[AUDIO_STREAM_SIZE];
-} AudioThreadState;
-
-// TODO: the non shared state pointer can be declared in main
-static State *state = NULL;
 static SharedState *sharedState = NULL;
-static AudioThreadState *audioThreadState = NULL;
 
 // common functions
 
@@ -298,11 +291,11 @@ static bool hasFlag(flagtype flags, flagtype flag) {
 }
 
 static uint64_t NextRandom() {
-    uint64_t x = state->randomState;
+    uint64_t x = sharedState->randomState;
     x ^= x << 13;
     x ^= x >> 7;
     x ^= x << 17;
-    state->randomState = x;
+    sharedState->randomState = x;
     return x;
 }
 

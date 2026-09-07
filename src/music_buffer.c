@@ -1,16 +1,21 @@
-static void InitMusicBuffers() {
+static void InitMusicBuffers(State *state) {
     sharedState->audioBackBufferIndex = DEFAULT_AUDIO_BACK_BUFFER_INDEX;
-    audioThreadState->audioFrontBufferIndex = DEFAULT_AUDIO_FRONT_BUFFER_INDEX;
+    sharedState->audioFrontBufferIndex = DEFAULT_AUDIO_FRONT_BUFFER_INDEX;
+
     state->mirrorBackBufferIndex = DEFAULT_MIRROR_BACK_BUFFER_INDEX;
     state->mirrorFrontBufferIndex = DEFAULT_MIRROR_FRONT_BUFFER_INDEX;
 
     // TODO: temporary scales and chords:
-    Scale scale = CreateScaleFromType(NOTE_C, SCALE_HARMONIC_MINOR);
+    Scale scale = CreateScaleFromType(NOTE_C, SCALE_LOCRIAN);
     Chord chord = CreateChordFromScaleDegree(scale, 0);
-    sharedState->audioBuffers[sharedState->audioBackBufferIndex].scale = scale;
-    sharedState->audioBuffers[sharedState->audioBackBufferIndex].chord = chord;
-    sharedState->audioBuffers[audioThreadState->audioFrontBufferIndex].scale = scale;
-    sharedState->audioBuffers[audioThreadState->audioFrontBufferIndex].chord = chord;
+
+    MusicBuffer *audioBackBuffer = &sharedState->audioBuffers[sharedState->audioBackBufferIndex];
+    audioBackBuffer->scale = scale;
+    audioBackBuffer->chord = chord;
+
+    MusicBuffer *audioFrontBuffer = &sharedState->audioBuffers[sharedState->audioFrontBufferIndex];
+    audioFrontBuffer->scale = scale;
+    audioFrontBuffer->chord = chord;
 }
 
 static MusicBuffer *GetAudioBackBuffer() {
@@ -19,19 +24,17 @@ static MusicBuffer *GetAudioBackBuffer() {
     return &sharedState->audioBuffers[index];
 }
 static MusicBuffer *GetAudioFrontBuffer() {
-    int index = audioThreadState->audioFrontBufferIndex;
+    int index = sharedState->audioFrontBufferIndex;
     ASSERT(index < AUDIO_BUFFER_COUNT);
     return &sharedState->audioBuffers[index];
 }
-static MusicBuffer *GetMirrorBackBuffer() {
-    int index = state->mirrorBackBufferIndex;
-    ASSERT(index < AUDIO_BUFFER_COUNT);
-    return &state->mirrorBuffers[index];
+static MusicBuffer *GetMirrorBuffer(MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT], int bufferIndex) {
+    ASSERT(bufferIndex < AUDIO_BUFFER_COUNT);
+    return &mirrorBuffers[bufferIndex];
 }
-static MusicBuffer *GetMirrorFrontBuffer() {
-    int index = state->mirrorFrontBufferIndex;
-    ASSERT(index < AUDIO_BUFFER_COUNT);
-    return &state->mirrorBuffers[index];
+static const MusicBuffer *GetReadonlyMirrorBuffer(const MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT], int bufferIndex) {
+    ASSERT(bufferIndex < AUDIO_BUFFER_COUNT);
+    return &mirrorBuffers[bufferIndex];
 }
 
 static void SwapBuffers(int *bufferIndexA, int *bufferIndexB) {
