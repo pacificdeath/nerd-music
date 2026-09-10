@@ -13,6 +13,8 @@
         printf("%s:%i: %s", __FILE__, __LINE__, #condition);\
         exit(1);\
     } } while (0)
+#else
+#define ASSERT(condition)
 #endif
 
 // defines:
@@ -155,6 +157,7 @@ enum {
     SCALE_LOCRIAN,
     SCALE_HARMONIC_MINOR,
     SCALE_MELODIC_MINOR,
+    SCALE_DOUBLE_HARMONIC,
     SCALE_COUNT,
 };
 
@@ -199,6 +202,7 @@ typedef struct ChordInversion {
 } ChordInversion;
 
 typedef struct Scale {
+    int type;
     int notes[SCALE_NOTE_CAPACITY];
 } Scale;
 
@@ -239,12 +243,32 @@ enum {
     MENU_STATE_COUNT,
 };
 
+typedef struct FloatBox {
+    float x;
+    float y;
+    float width;
+    float height;
+} FloatBox;
+
+typedef struct MenuItem {
+    int type;
+    const char *text;
+    int value;
+    FloatBox box;
+} MenuItem;
+
+#define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE)
 typedef struct Menu {
-    int state;
-    int hightlightIndex;
-    bool isHighlightInSubmenu;
+    Font font;
+
     Rectangle outerRectangle;
     Rectangle innerRectangle;
+
+    int rootNote;
+    Scale scale;
+
+    MenuItem items[MENU_ITEM_COUNT];
+    int hoverIndex;
 } Menu;
 
 typedef struct State {

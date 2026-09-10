@@ -1,6 +1,5 @@
 #include "main.h"
 
-#include "menu.c"
 #include "tone.c"
 #include "chord.c"
 #include "scale.c"
@@ -9,6 +8,7 @@
 #include "measure.c"
 #include "sequencer.c"
 #include "audio_thread.c"
+#include "menu.c"
 
 #ifdef DEBUG
 #include "test.c"
@@ -45,7 +45,7 @@ void Update(State *state) {
 
         // regenerate into audio back buffer
         MusicBuffer *audioBackBuffer = GetAudioBackBuffer();
-
+        audioBackBuffer->scale = state->menu.scale;
         audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, audioBackBuffer->chord);
 
         for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
@@ -136,12 +136,20 @@ int main() {
 
     PlayAudioStream(stream);
 
+    MenuInitialize(&state->menu);
+
     while (!WindowShouldClose()) {
         Update(state);
         Render(state);
     }
 
+    MenuDeinitialize(&state->menu);
+
     StopAudioStream(stream);
+    UnloadAudioStream(stream);
+
+    CloseAudioDevice();
+    CloseWindow();
 
     free(state);
     free(sharedState);

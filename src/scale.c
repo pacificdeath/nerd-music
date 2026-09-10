@@ -1,4 +1,5 @@
 static Scale CreateScale(
+    int scaleType,
     int rootNote,
     int i,
     int ii,
@@ -9,6 +10,10 @@ static Scale CreateScale(
     int vii
 ) {
     Scale scale = {0};
+
+    ASSERT(scaleType >= 0);
+    ASSERT(scaleType < SCALE_COUNT);
+    scale.type = scaleType;
 
     scale.notes[0] = NoOctave(rootNote + i);
     scale.notes[1] = NoOctave(rootNote + ii);
@@ -25,15 +30,16 @@ static Scale CreateScaleFromType(int rootNote, int scaleType) {
     switch (scaleType) {
         default: ASSERT(false); return (Scale){0};
 
-        case SCALE_MAJOR:           return CreateScale(rootNote, 0, 2, 4, 5, 7, 9, 11);
-        case SCALE_DORIAN:          return CreateScale(rootNote, 0, 2, 3, 5, 7, 9, 10);
-        case SCALE_PHRYGIAN:        return CreateScale(rootNote, 0, 1, 3, 5, 7, 8, 10);
-        case SCALE_LYDIAN:          return CreateScale(rootNote, 0, 2, 4, 6, 7, 9, 11);
-        case SCALE_MIXOLYDIAN:      return CreateScale(rootNote, 0, 2, 4, 5, 7, 9, 10);
-        case SCALE_MINOR:           return CreateScale(rootNote, 0, 2, 3, 5, 7, 8, 10);
-        case SCALE_LOCRIAN:         return CreateScale(rootNote, 0, 1, 3, 5, 6, 8, 10);
-        case SCALE_HARMONIC_MINOR:  return CreateScale(rootNote, 0, 2, 3, 5, 7, 8, 11);
-        case SCALE_MELODIC_MINOR:   return CreateScale(rootNote, 0, 2, 3, 5, 7, 9, 11);
+        case SCALE_MAJOR:           return CreateScale(scaleType, rootNote, 0, 2, 4, 5, 7, 9, 11);
+        case SCALE_DORIAN:          return CreateScale(scaleType, rootNote, 0, 2, 3, 5, 7, 9, 10);
+        case SCALE_PHRYGIAN:        return CreateScale(scaleType, rootNote, 0, 1, 3, 5, 7, 8, 10);
+        case SCALE_LYDIAN:          return CreateScale(scaleType, rootNote, 0, 2, 4, 6, 7, 9, 11);
+        case SCALE_MIXOLYDIAN:      return CreateScale(scaleType, rootNote, 0, 2, 4, 5, 7, 9, 10);
+        case SCALE_MINOR:           return CreateScale(scaleType, rootNote, 0, 2, 3, 5, 7, 8, 10);
+        case SCALE_LOCRIAN:         return CreateScale(scaleType, rootNote, 0, 1, 3, 5, 6, 8, 10);
+        case SCALE_HARMONIC_MINOR:  return CreateScale(scaleType, rootNote, 0, 2, 3, 5, 7, 8, 11);
+        case SCALE_MELODIC_MINOR:   return CreateScale(scaleType, rootNote, 0, 2, 3, 5, 7, 9, 11);
+        case SCALE_DOUBLE_HARMONIC: return CreateScale(scaleType, rootNote, 0, 1, 4, 5, 7, 8, 11);
     }
 }
 
@@ -71,6 +77,11 @@ static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
         totalNiceness += niceness;
     }
 
+    ASSERT(totalNiceness > 0);
+
+    // TODO: this line has actually crashed at one point, probably zero division,
+    // the assert above was added after that,
+    // zero in this case means that total niceness is zero which is not very nice?!
     uint64_t random = NextRandom() % totalNiceness;
 
     int chordIndex = 0;

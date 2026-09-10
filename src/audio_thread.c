@@ -10,6 +10,36 @@ static float NoteToFrequency(int note) {
     return 440.0f * powf(2.0f, semitoneIndex / 12.0f);
 }
 
+static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample) {
+    ASSERT(measureIndex < MEASURE_TOTAL);
+
+    unsigned int eventStartSample = 0;
+    for (int eventIndex = 0; eventIndex < measure->eventCount; eventIndex++) {
+        unsigned int eventDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
+        unsigned int eventEndSample = eventStartSample + eventDuration;
+        if (currentSample >= eventEndSample) {
+            // skip elapsed events
+            eventStartSample = eventEndSample;
+            continue;
+        }
+
+        MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
+
+        float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
+
+        // For visualization on main thread
+        atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->cursorXPosition, cursorXPosition, memory_order_relaxed);
+        measurePlaybackState->eventStartSample = eventStartSample;
+        measurePlaybackState->eventEndSample = eventEndSample;
+
+        return true;
+    }
+
+    // current sample has passed the duration of the entire measure
+    return false;
+}
+
 static void AudioInputCallback(void *buffer, unsigned int frames) {
     for (unsigned int i = 0; i < frames; i++) {
         audioThreadState->bigBuffer[i] = 0;

@@ -8,36 +8,6 @@ static float GetMeasureDuration(const Measure *measure) {
     return duration;
 }
 
-static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample) {
-    ASSERT(measureIndex < MEASURE_TOTAL);
-
-    unsigned int eventStartSample = 0;
-    for (int eventIndex = 0; eventIndex < measure->eventCount; eventIndex++) {
-        unsigned int eventDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
-        unsigned int eventEndSample = eventStartSample + eventDuration;
-        if (currentSample >= eventEndSample) {
-            // skip elapsed events
-            eventStartSample = eventEndSample;
-            continue;
-        }
-
-        MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
-
-        float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
-
-        // For visualization on main thread
-        atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
-        atomic_store_explicit(&measurePlaybackState->cursorXPosition, cursorXPosition, memory_order_relaxed);
-        measurePlaybackState->eventStartSample = eventStartSample;
-        measurePlaybackState->eventEndSample = eventEndSample;
-
-        return true;
-    }
-
-    // current sample has passed the duration of the entire measure
-    return false;
-}
-
 typedef struct MelodyState {
     const MusicBuffer *buffer;
     const MusicalEvent *finalEventInPreviousMeasure;
@@ -133,7 +103,14 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
             switch (noteType) {
                 default: ASSERT(false); break;
                 case NOTE_TYPE_CHORD:
-                    switch (NextRandom() % 4) {
+                {
+                    // only allow the DURATION_4TH to be the first event in the
+                    // measure as some sort of a long target note for the new chord,
+                    // they should be used sparingly as they are slow and boring,
+                    // TODO: instead of doing this thing, the caller should
+                    // be able to specify the longest duration allowed
+                    const int choiceCount = isFirstEventInMeasure ? 4 : 3;
+                    switch (NextRandom() % choiceCount) {
                         default: ASSERT(false);
                         case 0: duration = DURATION_32TH; break;
                         case 1: duration = DURATION_16TH; break;
@@ -141,6 +118,7 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
                         case 3: duration = DURATION_4TH; break;
                     }
                     break;
+                }
                 case NOTE_TYPE_SCALE:
                     switch (NextRandom() % 3) {
                         default: ASSERT(false);
