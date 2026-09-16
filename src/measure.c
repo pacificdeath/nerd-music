@@ -1,4 +1,5 @@
-// TODO: only compile on debug, measure should always be length DURATION_WHOLE
+#ifdef DEBUG
+// only used to assert measure duration, measures should always be length DURATION_WHOLE
 static float GetMeasureDuration(const Measure *measure) {
     ASSERT((measure->eventCount) < MEASURE_EVENT_CAPACITY);
     float duration = 0;
@@ -6,6 +7,22 @@ static float GetMeasureDuration(const Measure *measure) {
         duration += measure->events[i].duration;
     }
     return duration;
+}
+#endif
+
+static bool IsTripleMeter(int rhythmType) {
+    switch (rhythmType) {
+        default: ASSERT(false);
+        case RHYTHM_TYPE_OOMPHA:
+        case RHYTHM_TYPE_ARPEGGIO:
+        case RHYTHM_TYPE_FAST_ARPEGGIO:
+            return false;
+        case RHYTHM_TYPE_OOMPHA_TRIPLET:
+        case RHYTHM_TYPE_WALTZ:
+        case RHYTHM_TYPE_ARPEGGIO_TRIPLET:
+        case RHYTHM_TYPE_FAST_ARPEGGIO_TRIPLET:
+            return true;
+    }
 }
 
 typedef struct MelodyState {
@@ -18,7 +35,7 @@ typedef struct MelodyState {
 // TODO: temporary
 #define MELODY_LOWEST_NOTE (4 * NOTES_PER_OCTAVE)
 #define MELODY_HIGHEST_NOTE ((5 * NOTES_PER_OCTAVE))
-static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
+static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result, bool isTripleMeter) {
     int direction;
 
     const Measure *measure = &state->buffer->measures[MEASURE_MELODY];
@@ -89,15 +106,19 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
         }
 
         // 16th notes must exist in pairs of 2 at least, otherwise it sounds banana
-        bool force16th = (previousDuration == DURATION_16TH) && ((consecutiveEqualDurations % 2) != 0);
+        bool force16th = (previousDuration == DURATION_16) && ((consecutiveEqualDurations % 2) != 0);
 
         // 32th notes must exist in pairs of 4 at least, otherwise it sounds banana
-        bool force32th = (previousDuration == DURATION_32TH) && ((consecutiveEqualDurations % 4) != 0);
+        bool force32th = (previousDuration == DURATION_32) && ((consecutiveEqualDurations % 4) != 0);
+
+        bool force24th = (previousDuration == DURATION_24) && ((consecutiveEqualDurations % 2) != 0);
 
         if (force32th) {
-            duration = DURATION_32TH;
+            duration = DURATION_32;
         } else if (force16th) {
-            duration = DURATION_16TH;
+            duration = DURATION_16;
+        } else if (force24th) {
+            duration = DURATION_24;
         } else {
             // random duration
             switch (noteType) {
@@ -107,28 +128,50 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
                     // only allow the DURATION_4TH to be the first event in the
                     // measure as some sort of a long target note for the new chord,
                     // they should be used sparingly as they are slow and boring,
-                    // TODO: instead of doing this thing, the caller should
-                    // be able to specify the longest duration allowed
+                    // TODO: instead of doing this thing, the caller should be able to specify the longest duration allowed
                     const int choiceCount = isFirstEventInMeasure ? 4 : 3;
-                    switch (NextRandom() % choiceCount) {
-                        default: ASSERT(false);
-                        case 0: duration = DURATION_32TH; break;
-                        case 1: duration = DURATION_16TH; break;
-                        case 2: duration = DURATION_8TH; break;
-                        case 3: duration = DURATION_4TH; break;
+                    if (isTripleMeter) {
+                        switch (NextRandom() % choiceCount) {
+                            default: ASSERT(false);
+                            case 0: duration = DURATION_24; break;
+                            case 1: duration = DURATION_12; break;
+                            case 2: duration = DURATION_6; break;
+                            case 3: duration = DURATION_4; break;
+                        }
+                    } else {
+                        switch (NextRandom() % choiceCount) {
+                            default: ASSERT(false);
+                            case 0: duration = DURATION_32; break;
+                            case 1: duration = DURATION_16; break;
+                            case 2: duration = DURATION_8; break;
+                            case 3: duration = DURATION_4; break;
+                        }
                     }
                     break;
                 }
                 case NOTE_TYPE_SCALE:
-                    switch (NextRandom() % 3) {
-                        default: ASSERT(false);
-                        case 0: duration = DURATION_32TH; break;
-                        case 1: duration = DURATION_16TH; break;
-                        case 2: duration = DURATION_8TH; break;
+                    if (isTripleMeter) {
+                        switch (NextRandom() % 3) {
+                            default: ASSERT(false);
+                            case 0: duration = DURATION_24; break;
+                            case 1: duration = DURATION_12; break;
+                            case 2: duration = DURATION_6; break;
+                        }
+                    } else {
+                        switch (NextRandom() % 3) {
+                            default: ASSERT(false);
+                            case 0: duration = DURATION_32; break;
+                            case 1: duration = DURATION_16; break;
+                            case 2: duration = DURATION_8; break;
+                        }
                     }
                     break;
                 case NOTE_TYPE_CHROMATIC:
-                    duration = DURATION_16TH;
+                    if (isTripleMeter) {
+                        duration = DURATION_24;
+                    } else {
+                        duration = DURATION_16;
+                    }
                     break;
             }
         }
@@ -137,14 +180,23 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result) {
 
         duration = state->forceDuration;
         int noteType;
-        if (duration <= DURATION_16TH) {
+
+        int chromaticNoteThreshold = isTripleMeter
+            ? DURATION_24
+            : DURATION_16;
+
+        int scaleNoteThreshold = isTripleMeter
+            ? DURATION_12
+            : DURATION_8;
+
+        if (duration <= chromaticNoteThreshold) {
             switch (NextRandom() % 3) {
                 default: ASSERT(false);
                 case 0: noteType = NOTE_TYPE_CHORD; break;
                 case 1: noteType = NOTE_TYPE_SCALE; break;
                 case 2: noteType = NOTE_TYPE_CHROMATIC; break;
             }
-        } else if (duration <= DURATION_8TH) {
+        } else if (duration <= scaleNoteThreshold) {
             switch (NextRandom() % 2) {
                 default: ASSERT(false);
                 case 0: noteType = NOTE_TYPE_CHORD; break;
@@ -184,6 +236,9 @@ static void GenerateMeasureWithRepeatingRhythms(
     int size
 ) {
     *measure = (Measure){0};
+    bool isTripleMeter = IsTripleMeter(currentBuffer->rhythmType);
+
+    ASSERT(size > 0);
 
     const int times = DURATION_WHOLE / size;
     ASSERT(times > 0);
@@ -205,7 +260,7 @@ static void GenerateMeasureWithRepeatingRhythms(
         melodyState.currentEventIndex = eventsPerSize;
         MusicalEvent *currentEvent = &measure->events[eventsPerSize];
 
-        GetNextMelodyEvent(&melodyState, currentEvent);
+        GetNextMelodyEvent(&melodyState, currentEvent, isTripleMeter);
 
         duration += currentEvent->duration;
         if (duration >= size) {
@@ -228,7 +283,7 @@ static void GenerateMeasureWithRepeatingRhythms(
             melodyState.currentEventIndex = (timeIndex * eventsPerSize) + eventIndex;
 
             MusicalEvent *currentEvent = &measure->events[melodyState.currentEventIndex];
-            GetNextMelodyEvent(&melodyState, currentEvent);
+            GetNextMelodyEvent(&melodyState, currentEvent, isTripleMeter);
         }
     }
 
@@ -241,6 +296,7 @@ static void GenerateMelodyMeasure(
     Measure *measure
 ) {
     int duration = 0;
+
     switch (NextRandom() % 3) {
         default: ASSERT(false); return;
 
@@ -251,7 +307,7 @@ static void GenerateMelodyMeasure(
         case 1: duration = DURATION_HALF; break;
 
         // rythmic motif x 4
-        case 2: duration = DURATION_4TH; break;
+        case 2: duration = DURATION_4; break;
     }
 
     GenerateMeasureWithRepeatingRhythms(currentBuffer, previousBuffer, measure, duration);
@@ -259,24 +315,175 @@ static void GenerateMelodyMeasure(
 
 // TODO: temporary
 #define HARMONY_LOWEST_NOTE (3 * NOTES_PER_OCTAVE)
-static void GenerateHarmonyMeasure(const MusicBuffer *buffer, Measure *measure) {
+
+static void GenerateOompahHarmony(const MusicBuffer *buffer, Measure *measure) {
     bool allow7thBase = false;
     ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
 
-    measure->eventCount = 24;
-    const int reps = 2;
+    int index = 0;
 
-    for (int i = 0; i < reps; i++) {
-        int offset = i * (measure->eventCount / reps);
-        InitMusicalEvent(&measure->events[0 + offset], CreateTone(inversion.notes[0]), DURATION_8TH);
-        InitMusicalEvent(&measure->events[1 + offset], CreateTone(inversion.notes[1]), DURATION_16TH);
-        AppendMusicalEvent(&measure->events[1 + offset], CreateTone(inversion.notes[2]));
-        InitMusicalEvent(&measure->events[2 + offset], CreateTone(SILENCE), DURATION_16TH);
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_8);
+        InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_16);
+        AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+        InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_16);
 
-        InitMusicalEvent(&measure->events[3 + offset], CreateTone(inversion.notes[2] - NOTES_PER_OCTAVE), DURATION_8TH);
-        InitMusicalEvent(&measure->events[4 + offset], CreateTone(inversion.notes[1]), DURATION_16TH);
-        AppendMusicalEvent(&measure->events[4 + offset], CreateTone(inversion.notes[2]));
-        InitMusicalEvent(&measure->events[5 + offset], CreateTone(SILENCE), DURATION_16TH);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] - NOTES_PER_OCTAVE), DURATION_8);
+        InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_16);
+        AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+        InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_16);
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateOompahX3Harmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = false;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_12);
+        InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_12);
+        AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] - NOTES_PER_OCTAVE), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_12);
+        InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_12);
+        AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateWaltzHarmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = false;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_12);
+
+        for (int j = 0; j < 2; j++) {
+            InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_24);
+            AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+            InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_24);
+        }
+
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] - NOTES_PER_OCTAVE), DURATION_12);
+
+        for (int j = 0; j < 2; j++) {
+            InitMusicalEvent(&measure->events[index], CreateTone(inversion.notes[1]), DURATION_24);
+            AppendMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]));
+            InitMusicalEvent(&measure->events[index++], CreateTone(SILENCE), DURATION_24);
+        }
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateArpeggioHarmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = true;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + NOTES_PER_OCTAVE), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_16);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_16);
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateFastArpeggioHarmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = true;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + (2*NOTES_PER_OCTAVE)), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + NOTES_PER_OCTAVE), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_32);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_32);
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateArpeggioTripletHarmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = true;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_12);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_12);
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateFastArpeggioTripletHarmony(const MusicBuffer *buffer, Measure *measure) {
+    bool allow7thBase = true;
+    ChordInversion inversion = CreateLowChordInversion(buffer->chord, HARMONY_LOWEST_NOTE, allow7thBase);
+
+    int index = 0;
+
+    for (int i = 0; i < 2; i++) {
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + NOTES_PER_OCTAVE), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1] + NOTES_PER_OCTAVE), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2] + NOTES_PER_OCTAVE), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1] + NOTES_PER_OCTAVE), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[0] + NOTES_PER_OCTAVE), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[3]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[2]), DURATION_24);
+        InitMusicalEvent(&measure->events[index++], CreateTone(inversion.notes[1]), DURATION_24);
+    }
+
+    measure->eventCount = index;
+}
+
+static void GenerateHarmonyMeasure(const MusicBuffer *buffer, Measure *measure) {
+    switch (buffer->rhythmType) {
+        case RHYTHM_TYPE_OOMPHA:                    GenerateOompahHarmony(buffer, measure); break;
+        case RHYTHM_TYPE_OOMPHA_TRIPLET:            GenerateOompahX3Harmony(buffer, measure); break;
+        case RHYTHM_TYPE_WALTZ:                     GenerateWaltzHarmony(buffer, measure); break;
+        case RHYTHM_TYPE_ARPEGGIO:                  GenerateArpeggioHarmony(buffer, measure); break;
+        case RHYTHM_TYPE_FAST_ARPEGGIO:             GenerateFastArpeggioHarmony(buffer, measure); break;
+        case RHYTHM_TYPE_ARPEGGIO_TRIPLET:          GenerateArpeggioTripletHarmony(buffer, measure); break;
+        case RHYTHM_TYPE_FAST_ARPEGGIO_TRIPLET:     GenerateFastArpeggioTripletHarmony(buffer, measure); break;
     }
 
     ASSERT(GetMeasureDuration(measure) == DURATION_WHOLE);

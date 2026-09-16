@@ -47,6 +47,7 @@ void Update(State *state) {
         MusicBuffer *audioBackBuffer = GetAudioBackBuffer();
         audioBackBuffer->scale = state->menu.scale;
         audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, audioBackBuffer->chord);
+        audioBackBuffer->rhythmType = state->menu.rhythmType;
 
         for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
             Measure *measure = &audioBackBuffer->measures[measureIndex];
@@ -100,6 +101,11 @@ void Render(const State *state) {
 }
 
 int main() {
+    // smallest 4/4
+    ASSERT((MEASURE_EVENT_CAPACITY % 32) == 0);
+    // smallest 3/4
+    ASSERT((MEASURE_EVENT_CAPACITY % 24) == 0);
+
     State *state;
 
     state = (State *)calloc(sizeof(State), 1);
@@ -115,7 +121,7 @@ int main() {
     RunTests();
 #endif
 
-    sharedState->bpm = 180.0f;
+    sharedState->bpm = 120.0f;
 
     InitMusicBuffers(state);
 

@@ -79,9 +79,7 @@ static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
 
     ASSERT(totalNiceness > 0);
 
-    // TODO: this line has actually crashed at one point, probably zero division,
-    // the assert above was added after that,
-    // zero in this case means that total niceness is zero which is not very nice?!
+    // TODO: this line has actually crashed at one point, probably zero division, the assert above was added after that, zero in this case means that total niceness is zero which is not very nice?!
     uint64_t random = NextRandom() % totalNiceness;
 
     int chordIndex = 0;

@@ -3,10 +3,7 @@
 enum {
     MENU_ITEM_ROOT_NOTE,
     MENU_ITEM_SCALE,
-};
-
-enum {
-    INPUT_FIELD_BPM,
+    MENU_ITEM_RHYTHM_TYPE,
 };
 
 static float GetMenuLineHeight(const Menu *menu) {
@@ -167,18 +164,69 @@ static void MenuInitialize(Menu *menu) {
         FloatBox base = {
             .x = 0.5f,
             .y = 0.0f,
-            .width = 0.5f / 3.0f,
+            .width = 0.5f / NOTES_PER_OCTAVE,
             .height = itemHeight,
         };
 
         for (int i = 0; i < NOTES_PER_OCTAVE; i++) {
             FloatBox box = base;
-
-            // rows of three
-            box.x = base.x + (base.width * (i % 3));
-            box.y = base.y + (base.height * (i / 3));
-
+            box.x = base.x + (base.width * (i % NOTES_PER_OCTAVE));
             menu->items[itemIndex - NOTES_PER_OCTAVE + i].box = box;
+        }
+    }
+
+    // initialize rhythm types
+    {
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "Oompha",
+            .value = RHYTHM_TYPE_OOMPHA,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "OomphaTriplet",
+            .value = RHYTHM_TYPE_OOMPHA_TRIPLET,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "Waltz",
+            .value = RHYTHM_TYPE_WALTZ,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "Arpeggio",
+            .value = RHYTHM_TYPE_ARPEGGIO,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "FastArpeggio",
+            .value = RHYTHM_TYPE_FAST_ARPEGGIO,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "ArpeggioTriplet",
+            .value = RHYTHM_TYPE_ARPEGGIO_TRIPLET,
+        };
+        menu->items[itemIndex++] = (MenuItem) {
+            .type = MENU_ITEM_RHYTHM_TYPE,
+            .text = "FastArpeggioTriplet",
+            .value = RHYTHM_TYPE_FAST_ARPEGGIO_TRIPLET,
+        };
+
+        FloatBox base = {
+            .x = 0.5f,
+            .y = itemHeight,
+            .width = 0.5f / 2.0f,
+            .height = itemHeight,
+        };
+
+        for (int i = 0; i < RHYTHM_TYPE_COUNT; i++) {
+            FloatBox box = base;
+
+            box.x = base.x + (base.width * (i % 2));
+            box.y = base.y + (base.height * (i / 2));
+
+            menu->items[itemIndex - RHYTHM_TYPE_COUNT + i].box = box;
         }
     }
 }
@@ -211,17 +259,30 @@ static void MenuUpdate(Menu *menu, Rectangle outerRectangle) {
         switch (item.type) {
             default: ASSERT(false); break;
             case MENU_ITEM_SCALE:
+            {
                 int scaleType = item.value;
                 ASSERT(scaleType >= 0);
                 ASSERT(scaleType < SCALE_COUNT);
                 menu->scale = CreateScaleFromType(menu->rootNote, scaleType);
                 break;
+            }
             case MENU_ITEM_ROOT_NOTE:
+            {
                 int rootNote = item.value;
                 ASSERT(rootNote >= 0);
                 ASSERT(rootNote < NOTES_PER_OCTAVE);
                 menu->rootNote = rootNote;
+                menu->scale = CreateScaleFromType(menu->rootNote, menu->scale.type);
                 break;
+            }
+            case MENU_ITEM_RHYTHM_TYPE:
+            {
+                int rhythmType = item.value;
+                ASSERT(rhythmType >= 0);
+                ASSERT(rhythmType < RHYTHM_TYPE_COUNT);
+                menu->rhythmType = rhythmType;
+                break;
+            }
         }
     }
 }
@@ -234,7 +295,6 @@ static void MenuUpdate(Menu *menu, Rectangle outerRectangle) {
 #define MENU_ITEM_FG_COLOR COLOR(1.f,1.f,1.f)
 #define MENU_ITEM_FG_HOVER_COLOR COLOR(1.f,1.f,0.f)
 #define MENU_ITEM_FG_SELECTED_COLOR COLOR(0.f,1.f,0.f)
-
 
 static void MenuRender(const Menu *menu) {
     float lineHeight = GetMenuLineHeight(menu);
@@ -255,6 +315,13 @@ static void MenuRender(const Menu *menu) {
                 break;
             case MENU_ITEM_ROOT_NOTE:
                 if (menu->rootNote == item.value) {
+                    fgColor = MENU_ITEM_FG_SELECTED_COLOR;
+                    borderColor = MENU_ITEM_BORDER_SELECTED_COLOR;
+                }
+                // TODO:
+                break;
+            case MENU_ITEM_RHYTHM_TYPE:
+                if (menu->rhythmType == item.value) {
                     fgColor = MENU_ITEM_FG_SELECTED_COLOR;
                     borderColor = MENU_ITEM_BORDER_SELECTED_COLOR;
                 }

@@ -26,13 +26,21 @@
 #define SAMPLE_SIZE 16
 #define CHANNELS 1
 
-#define DURATION_64TH (MEASURE_EVENT_CAPACITY / 64)
-#define DURATION_32TH (MEASURE_EVENT_CAPACITY / 32)
-#define DURATION_16TH (MEASURE_EVENT_CAPACITY / 16)
-#define DURATION_8TH (MEASURE_EVENT_CAPACITY / 8)
-#define DURATION_4TH (MEASURE_EVENT_CAPACITY / 4)
-#define DURATION_HALF (MEASURE_EVENT_CAPACITY / 2)
-#define DURATION_WHOLE (MEASURE_EVENT_CAPACITY)
+// least common multiple of 32 (smallest 4/4 beat) and 24 (smallest 3/4 beat)
+#define MEASURE_EVENT_CAPACITY 96
+
+// 4/4 measures
+#define DURATION(divisor) (MEASURE_EVENT_CAPACITY / divisor)
+#define DURATION_WHOLE DURATION(1)
+#define DURATION_HALF DURATION(2)
+#define DURATION_4 DURATION(4)
+#define DURATION_8 DURATION(8)
+#define DURATION_16 DURATION(16)
+#define DURATION_32 DURATION(32)
+// 3/4 measures
+#define DURATION_6 DURATION(6)
+#define DURATION_12 DURATION(12)
+#define DURATION_24 DURATION(24)
 
 #define INTERVAL_MAJOR_THIRD 4
 #define INTERVAL_MINOR_THIRD 3
@@ -74,8 +82,6 @@ typedef uint64_t flagtype;
 #define SEQUENCER_OCTAVE_COUNT (HIGHEST_OCTAVE - LOWEST_OCTAVE + 1)
 
 #define MUSICAL_EVENT_MAX_TONES 4
-
-#define MEASURE_EVENT_CAPACITY 64
 
 #define MEASURE_FLAG_MUTED (FLAG(0))
 
@@ -162,6 +168,17 @@ enum {
 };
 
 enum {
+    RHYTHM_TYPE_OOMPHA,
+    RHYTHM_TYPE_OOMPHA_TRIPLET,
+    RHYTHM_TYPE_WALTZ,
+    RHYTHM_TYPE_ARPEGGIO,
+    RHYTHM_TYPE_FAST_ARPEGGIO,
+    RHYTHM_TYPE_ARPEGGIO_TRIPLET,
+    RHYTHM_TYPE_FAST_ARPEGGIO_TRIPLET,
+    RHYTHM_TYPE_COUNT,
+};
+
+enum {
     MEASURE_MELODY,
     MEASURE_HARMONY,
     MEASURE_TOTAL,
@@ -233,15 +250,8 @@ typedef struct MusicBuffer {
     Measure measures[MEASURE_TOTAL];
     Scale scale;
     Chord chord;
+    int rhythmType;
 } MusicBuffer;
-
-#define MENU_HEIGHT 16
-enum {
-    MENU_STATE_OVERVIEW,
-    MENU_STATE_SCALE,
-    MENU_STATE_CHORD_PROGRESSION,
-    MENU_STATE_COUNT,
-};
 
 typedef struct FloatBox {
     float x;
@@ -257,7 +267,7 @@ typedef struct MenuItem {
     FloatBox box;
 } MenuItem;
 
-#define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE)
+#define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE + RHYTHM_TYPE_COUNT)
 typedef struct Menu {
     Font font;
 
@@ -266,6 +276,7 @@ typedef struct Menu {
 
     int rootNote;
     Scale scale;
+    int rhythmType;
 
     MenuItem items[MENU_ITEM_COUNT];
     int hoverIndex;
