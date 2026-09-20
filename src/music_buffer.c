@@ -29,11 +29,11 @@ static MusicBuffer *GetAudioFrontBuffer() {
     return &sharedState->audioBuffers[index];
 }
 static MusicBuffer *GetMirrorBuffer(MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT], int bufferIndex) {
-    ASSERT(bufferIndex < AUDIO_BUFFER_COUNT);
+    ASSERT(bufferIndex < MIRROR_BUFFER_COUNT);
     return &mirrorBuffers[bufferIndex];
 }
 static const MusicBuffer *GetReadonlyMirrorBuffer(const MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT], int bufferIndex) {
-    ASSERT(bufferIndex < AUDIO_BUFFER_COUNT);
+    ASSERT(bufferIndex < MIRROR_BUFFER_COUNT);
     return &mirrorBuffers[bufferIndex];
 }
 

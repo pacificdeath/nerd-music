@@ -27,9 +27,14 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
 
         float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
 
+        Cursor cursor = {
+            .eventIndex = eventIndex,
+            .eventPosition = cursorXPosition,
+        };
+
         // For visualization on main thread
-        atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
-        atomic_store_explicit(&measurePlaybackState->cursorXPosition, cursorXPosition, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->cursor, cursor, memory_order_relaxed);
+
         measurePlaybackState->eventStartSample = eventStartSample;
         measurePlaybackState->eventEndSample = eventEndSample;
 
@@ -129,8 +134,8 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
-            const int eventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
-            MusicalEvent *event = &measure->events[eventIndex];
+            const Cursor cursor = atomic_load_explicit(&measurePlaybackState->cursor, memory_order_relaxed);
+            MusicalEvent *event = &measure->events[cursor.eventIndex];
 
             const unsigned int eventStartSample = measurePlaybackState->eventStartSample;
             const unsigned int eventEndSample = measurePlaybackState->eventEndSample;

@@ -22,7 +22,7 @@ static bool IsGuiContainerExpanded(const GuiContainer *container) {
 static void GuiContainerInitialize(GuiContainer containers[GUI_CONTAINER_COUNT]) {
     containers[GUI_CONTAINER_MELODY].name = "Melody Sequencer";
     containers[GUI_CONTAINER_MELODY].color = COLOR(.5f,.25f,.25f);
-    containers[GUI_CONTAINER_MELODY].flags = FLAG_GUI_CONTAINER_EXPANDED;
+    containers[GUI_CONTAINER_MELODY].flags = FLAG_GUI_CONTAINER_EXPANDED_REQUEST | FLAG_GUI_CONTAINER_EXPANDED;
     containers[GUI_CONTAINER_MELODY].buttonChar = '1';
 
     containers[GUI_CONTAINER_HARMONY].name = "Harmony Sequencer";

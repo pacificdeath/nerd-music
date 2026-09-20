@@ -96,23 +96,11 @@ typedef uint64_t flagtype;
 #define MEASURE_FLAG_MUTED (FLAG(0))
 
 // colors
-#define COLOR_BG (0.2f)
-#define COLOR_INACTIVE (0.3f)
-#define COLOR_ACTIVE (1.0f)
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
 #define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
-// chord visuals
-#define COLOR_CHORD_NOTE_BG COLOR(0,COLOR_BG,0)
-#define COLOR_CHORD_NOTE_INACTIVE COLOR(0,COLOR_INACTIVE,0)
-#define COLOR_CHORD_NOTE_ACTIVE COLOR(0,COLOR_ACTIVE,0)
-// scale visuals
-#define COLOR_SCALE_NOTE_BG COLOR(0,COLOR_BG/2,COLOR_BG)
-#define COLOR_SCALE_NOTE_INACTIVE COLOR(0,COLOR_INACTIVE/2,COLOR_INACTIVE)
-#define COLOR_SCALE_NOTE_ACTIVE COLOR(0,COLOR_ACTIVE/2,COLOR_ACTIVE)
-// chromatic visuals
-#define COLOR_CHROMATIC_NOTE_BG COLOR(COLOR_BG,COLOR_BG,COLOR_BG)
-#define COLOR_CHROMATIC_NOTE_INACTIVE COLOR(COLOR_INACTIVE,0,0)
-#define COLOR_CHROMATIC_NOTE_ACTIVE COLOR(COLOR_ACTIVE,0,0)
+#define COLOR_CHORD_NOTE_FG COLOR(.5,1,.5)
+#define COLOR_SCALE_NOTE_FG COLOR(.5,.5,1)
+#define COLOR_CHROMATIC_NOTE_FG COLOR(1,.5,.5)
 
 enum {
     DEFAULT_AUDIO_BACK_BUFFER_INDEX = 0,
@@ -121,6 +109,7 @@ enum {
 
     DEFAULT_MIRROR_BACK_BUFFER_INDEX = 0,
     DEFAULT_MIRROR_FRONT_BUFFER_INDEX,
+    DEFAULT_MIRROR_OLD_BUFFER_INDEX,
     MIRROR_BUFFER_COUNT,
 
     NOTE_A = 0,
@@ -234,9 +223,13 @@ typedef struct Measure {
     Chord chord;
 } Measure;
 
+typedef struct Cursor {
+    int eventIndex;
+    float eventPosition;
+} Cursor;
+
 typedef struct MeasurePlaybackState {
-    _Atomic(int) eventIndex;
-    _Atomic(float) cursorXPosition;
+    _Atomic(Cursor) cursor;
 
     // use only on audio thread
     unsigned int eventStartSample;
@@ -290,7 +283,7 @@ typedef struct Menu {
 typedef struct State {
     Font font;
 
-    // containing mirrorFrontBuffer, mirrorBackBuffer
+    // containing mirrorFrontBuffer, mirrorBackBuffer, mirrorOldBuffer
     MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT];
 
     int mirrorBackBufferIndex;

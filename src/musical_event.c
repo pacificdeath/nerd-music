@@ -1,6 +1,8 @@
 static unsigned int MusicalEventDurationToSampleDuration(int duration) {
     float quarterNoteSamples = SAMPLE_RATE * (60.0f / sharedState->bpm);
-    return quarterNoteSamples * ((float)duration / (float)DURATION_4);
+    return (unsigned int)roundf(
+        quarterNoteSamples * ((float)duration / (float)DURATION_4)
+    );
 }
 
 static void InitMusicalEvent(MusicalEvent *event, Tone tone, int duration) {

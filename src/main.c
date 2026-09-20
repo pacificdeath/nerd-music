@@ -28,6 +28,14 @@ void Update(State *state) {
     bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
 
     if (!isAudioBackBufferPrepared) {
+        {
+            // old mirror buffer is never swapped so it always has the default index
+            MusicBuffer *mirrorOldBuffer = GetMirrorBuffer(state->mirrorBuffers, DEFAULT_MIRROR_OLD_BUFFER_INDEX);
+            // copy the now completed front buffer into the old mirror buffer
+            MusicBuffer *mirrorFrontBuffer = GetMirrorBuffer(state->mirrorBuffers, state->mirrorFrontBufferIndex);
+            *mirrorOldBuffer = *mirrorFrontBuffer;
+        }
+
         // the audio thread has swapped the audio front and back buffers,
         // this means we have to swap the mirror buffers as well
         SwapBuffers(
