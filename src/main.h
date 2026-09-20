@@ -10,7 +10,7 @@
 #include <stdio.h>
 #define ASSERT(condition)\
     do { if (!(condition)) {\
-        printf("%s:%i: %s", __FILE__, __LINE__, #condition);\
+        printf("%s:%i: error: you are a horrible person (%s)\n", __FILE__, __LINE__, #condition);\
         exit(1);\
     } } while (0)
 #else
@@ -51,6 +51,10 @@
 #define INTERVAL_MINOR_SEVENTH 10
 #define INTERVAL_DIMINISHED_SEVENTH 9
 
+#define MELODY_CHORD_NOTE_WEIGHT 5
+#define MELODY_SCALE_NOTE_WEIGHT 4
+#define MELODY_CHROMATIC_NOTE_WEIGHT 1
+
 typedef uint64_t flagtype;
 #define FLAG_NONE ((uint64_t)0)
 #define FLAG(x) ((uint64_t)1 << (x))
@@ -70,9 +74,15 @@ typedef uint64_t flagtype;
 #define FLAG_CHORD_AUGMENTED_MAJOR_7     (FLAG(9 ) | FLAG_TRIAD_AUGMENTED)
 #define FLAG_CHORD_FULLY_DIMINISHED_7    (FLAG(10) | FLAG_TRIAD_DIMINISHED)
 
+#define FLAG_GUI_CONTAINER_EXPANDED FLAG(0)
+#define FLAG_GUI_CONTAINER_EXPANDED_REQUEST FLAG(1)
+
 #define SCALE_NOTE_CAPACITY 7
 #define CHORD_NOTE_CAPACITY 4
 #define CHORD_NOTE_CAPACITY_NO_SEVENTH (CHORD_NOTE_CAPACITY - 1)
+
+#define SECONDARY_DOMINANT_CHORD_FLAGS (FLAG_CHORD_MAJOR_7|FLAG_CHORD_MINOR_7)
+#define DIMINISHED_PASSING_CHORD_FLAGS (FLAG_CHORD_MAJOR_7|FLAG_CHORD_MINOR_7)
 
 #define NOTE_WITH_OCTAVE(note, octave) ((octave * NOTES_PER_OCTAVE) + note)
 #define LOWEST_OCTAVE 2
@@ -85,15 +95,9 @@ typedef uint64_t flagtype;
 
 #define MEASURE_FLAG_MUTED (FLAG(0))
 
-#define VIEW_FLAG_MELODY (FLAG(0))
-#define VIEW_FLAG_HARMONY (FLAG(1))
-#define VIEW_FLAG_MENU (FLAG(2))
-
-#define DEFAULT_VIEW_FLAGS (VIEW_FLAG_MELODY | VIEW_FLAG_HARMONY)
-
 // colors
 #define COLOR_BG (0.2f)
-#define COLOR_INACTIVE (0.4f)
+#define COLOR_INACTIVE (0.3f)
 #define COLOR_ACTIVE (1.0f)
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
 #define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
@@ -110,22 +114,16 @@ typedef uint64_t flagtype;
 #define COLOR_CHROMATIC_NOTE_INACTIVE COLOR(COLOR_INACTIVE,0,0)
 #define COLOR_CHROMATIC_NOTE_ACTIVE COLOR(COLOR_ACTIVE,0,0)
 
-// enums:
-
 enum {
-    DEFAULT_AUDIO_BACK_BUFFER_INDEX,
+    DEFAULT_AUDIO_BACK_BUFFER_INDEX = 0,
     DEFAULT_AUDIO_FRONT_BUFFER_INDEX,
     AUDIO_BUFFER_COUNT,
-};
 
-enum {
-    DEFAULT_MIRROR_BACK_BUFFER_INDEX,
+    DEFAULT_MIRROR_BACK_BUFFER_INDEX = 0,
     DEFAULT_MIRROR_FRONT_BUFFER_INDEX,
     MIRROR_BUFFER_COUNT,
-};
 
-enum {
-    NOTE_A,
+    NOTE_A = 0,
     NOTE_A_SHARP,
     NOTE_B_FLAT = NOTE_A_SHARP,
     NOTE_B,
@@ -144,17 +142,13 @@ enum {
     NOTE_A_FLAT = NOTE_G_SHARP,
     NOTES_PER_OCTAVE,
     SILENCE,
-};
 
-enum {
-    NOTE_TYPE_CHORD,
+    NOTE_TYPE_CHORD = 0,
     NOTE_TYPE_SCALE,
     NOTE_TYPE_CHROMATIC,
     NOTE_TYPES_COUNT,
-};
 
-enum {
-    SCALE_MAJOR,
+    SCALE_MAJOR = 0,
     SCALE_DORIAN,
     SCALE_PHRYGIAN,
     SCALE_LYDIAN,
@@ -165,10 +159,8 @@ enum {
     SCALE_MELODIC_MINOR,
     SCALE_DOUBLE_HARMONIC,
     SCALE_COUNT,
-};
 
-enum {
-    RHYTHM_TYPE_OOMPHA,
+    RHYTHM_TYPE_OOMPHA = 0,
     RHYTHM_TYPE_OOMPHA_TRIPLET,
     RHYTHM_TYPE_WALTZ,
     RHYTHM_TYPE_ARPEGGIO,
@@ -176,21 +168,20 @@ enum {
     RHYTHM_TYPE_ARPEGGIO_TRIPLET,
     RHYTHM_TYPE_FAST_ARPEGGIO_TRIPLET,
     RHYTHM_TYPE_COUNT,
-};
 
-enum {
-    MEASURE_MELODY,
+    GUI_CONTAINER_MELODY = 0,
+    GUI_CONTAINER_HARMONY,
+    GUI_CONTAINER_MENU,
+    GUI_CONTAINER_COUNT,
+
+    MEASURE_MELODY = 0,
     MEASURE_HARMONY,
     MEASURE_TOTAL,
-};
 
-enum {
-    CURSOR_AT_PAST_EVENT,
+    CURSOR_AT_PAST_EVENT = 0,
     CURSOR_AT_CURRENT_EVENT,
     CURSOR_AT_FUTURE_EVENT,
 };
-
-// structs:
 
 typedef struct Tone {
     int note;
@@ -217,6 +208,12 @@ typedef struct ChordInversion {
     int notes[CHORD_NOTE_CAPACITY];
     int noteCount; // depends on if it is a triad or 7th chord inversion
 } ChordInversion;
+
+#define CHORD_QUEUE_CAPACITY 4
+typedef struct ChordQueue {
+    Chord chords[CHORD_QUEUE_CAPACITY];
+    int count;
+} ChordQueue;
 
 typedef struct Scale {
     int type;
@@ -267,12 +264,20 @@ typedef struct MenuItem {
     FloatBox box;
 } MenuItem;
 
+typedef struct GuiContainer {
+    const char *name;
+    Color color;
+    flagtype flags;
+    Rectangle outerRectangle;
+    Rectangle headerRectangle;
+    Rectangle contentRectangle;
+    char buttonChar;
+} GuiContainer;
+
 #define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE + RHYTHM_TYPE_COUNT)
 typedef struct Menu {
-    Font font;
-
-    Rectangle outerRectangle;
-    Rectangle innerRectangle;
+    const GuiContainer *guiContainer;
+    Rectangle rectangle;
 
     int rootNote;
     Scale scale;
@@ -283,16 +288,19 @@ typedef struct Menu {
 } Menu;
 
 typedef struct State {
+    Font font;
+
     // containing mirrorFrontBuffer, mirrorBackBuffer
     MusicBuffer mirrorBuffers[MIRROR_BUFFER_COUNT];
 
     int mirrorBackBufferIndex;
     int mirrorFrontBufferIndex;
 
-    int viewFlags;
-    float viewHeight;
+    GuiContainer guiContainers[GUI_CONTAINER_COUNT];
 
     Menu menu;
+
+    ChordQueue chordQueue;
 } State;
 
 typedef struct SharedState {
@@ -321,17 +329,12 @@ static SharedState *sharedState = NULL;
 
 // common functions
 
-static bool hasFlag(flagtype flags, flagtype flag) {
+static bool hasAllFlags(flagtype flags, flagtype flag) {
     return (flags & flag) == flag;
 }
 
-static uint64_t NextRandom() {
-    uint64_t x = sharedState->randomState;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    sharedState->randomState = x;
-    return x;
+static bool hasAnyFlags(flagtype flags, flagtype flag) {
+    return (flags & flag) != FLAG_NONE;
 }
 
 static int NoteWithOctave(int note, int octave) {
@@ -344,6 +347,14 @@ static int NoOctave(int note) {
 
 static int GetOctave(int note) {
     return note / NOTES_PER_OCTAVE;
+}
+
+static int GetSmallestWindowDimension() {
+    return (GetScreenWidth() < GetScreenHeight()) ? GetScreenWidth() : GetScreenHeight();
+}
+
+static float GetFontSize() {
+    return GetSmallestWindowDimension() / 50;
 }
 
 // TODO: debug only

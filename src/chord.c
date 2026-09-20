@@ -1,3 +1,31 @@
+static Chord CreateSecondaryDominantChord(int targetChordRootNote) {
+    Chord chord = {0};
+
+    // not part of scale, let us not pretend that it is
+    chord.rootScaleDegree = -1;
+    chord.root = (targetChordRootNote + INTERVAL_PERFECT_FIFTH) % NOTES_PER_OCTAVE;
+
+    chord.third = (chord.root + INTERVAL_MAJOR_THIRD) % NOTES_PER_OCTAVE;
+    chord.fifth = (chord.root + INTERVAL_PERFECT_FIFTH) % NOTES_PER_OCTAVE;
+    chord.seventh = (chord.root + INTERVAL_MINOR_SEVENTH) % NOTES_PER_OCTAVE;
+
+    return chord;
+}
+
+static Chord CreateDiminishedPassingChord(int targetChordRootNote) {
+    Chord chord = {0};
+
+    // not part of scale, let us not pretend that it is
+    chord.rootScaleDegree = -1;
+    chord.root = (targetChordRootNote + INTERVAL_MAJOR_SEVENTH) % NOTES_PER_OCTAVE;
+
+    chord.third = (chord.root + INTERVAL_MINOR_THIRD) % NOTES_PER_OCTAVE;
+    chord.fifth = (chord.root + INTERVAL_FLAT_FIFTH) % NOTES_PER_OCTAVE;
+    chord.seventh = (chord.root + INTERVAL_DIMINISHED_SEVENTH) % NOTES_PER_OCTAVE;
+
+    return chord;
+}
+
 static Chord CreateChordFromScaleDegree(Scale scale, int degree) {
     ASSERT(degree >= 0);
     ASSERT(degree < SCALE_NOTE_CAPACITY);
@@ -152,11 +180,11 @@ static int GetChordProgressionNicenessLevel(Chord fromChord, Chord toChord) {
     {
         // DOMINANT -> TONIC
         bool isDominantInterval = GetNoteIntervalFromRoot(fromChord.root, toChord.root) == INTERVAL_PERFECT_FIFTH;
-        bool toChordIsNotThatDissonant = hasFlag(toFlags, FLAG_TRIAD_MAJOR) || hasFlag(toFlags, FLAG_TRIAD_MINOR);
+        bool toChordIsNotThatDissonant = hasAnyFlags(toFlags, FLAG_TRIAD_MAJOR | FLAG_TRIAD_MINOR);
         if (isDominantInterval && toChordIsNotThatDissonant) {
-            if (hasFlag(fromFlags, FLAG_CHORD_DOMINANT_7))
+            if (hasAllFlags(fromFlags, FLAG_CHORD_DOMINANT_7))
                 niceness += 10;
-            else if (hasFlag(fromFlags, FLAG_TRIAD_MAJOR)) {
+            else if (hasAllFlags(fromFlags, FLAG_TRIAD_MAJOR)) {
                 // it is pretty much a "dominant to tonic" move but its missing the 7th
                 niceness += 5;
             }

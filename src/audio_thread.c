@@ -73,7 +73,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             Measure *measure = &musicBuffer->measures[measureIndex];
 
-            if (hasFlag(measure->flags, MEASURE_FLAG_MUTED)) {
+            if (hasAllFlags(measure->flags, MEASURE_FLAG_MUTED)) {
                 measureSamplesObtained[measureIndex] = true;
                 continue;
             }
@@ -193,7 +193,7 @@ NoMusicLeft:
     int nonMutedMeasures = 0;
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
         const Measure *measure = &musicBuffer->measures[measureIndex];
-        if (!hasFlag(measure->flags, MEASURE_FLAG_MUTED)) {
+        if (!hasAllFlags(measure->flags, MEASURE_FLAG_MUTED)) {
             nonMutedMeasures++;
         }
     }

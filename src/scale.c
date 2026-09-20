@@ -62,9 +62,25 @@ static bool IsNoteInScale(Scale scale, int note) {
     return false;
 }
 
+static void InitChordQueue(ChordQueue *chordQueue, Chord chord) {
+    ASSERT(chordQueue->count == 0);
+    chordQueue->chords[chordQueue->count++] = chord;
+}
+
 // TODO: this belongs probably in another file, I forget that this is found in here
-// TODO: need transitional chords like AMaj->A#Dim->BMaj or secondary dominants
-static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
+static Chord GetNextChordInProgression(Scale scale, ChordQueue *chordQueue) {
+    ASSERT(chordQueue->count > 0);
+
+    Chord currentChord = chordQueue->chords[0];
+    for (int i = 0; i < chordQueue->count - 1; i++) {
+        chordQueue->chords[i] = chordQueue->chords[i + 1];
+    }
+    chordQueue->count--;
+
+    if (chordQueue->count > 0) {
+        return chordQueue->chords[0];
+    }
+
     Chord candidates[SCALE_NOTE_CAPACITY];
     int nicenessLevels[SCALE_NOTE_CAPACITY];
     int totalNiceness = 0;
@@ -94,6 +110,27 @@ static Chord GetNextChordInProgression(Scale scale, Chord currentChord) {
         chordNiceness += nicenessLevels[chordIndex];
     }
 
-    return candidates[chordIndex];
+    Chord nextChord = candidates[chordIndex];
+
+    flagtype chordFlags = GetChordFlags(nextChord);
+
+    if (hasAnyFlags(chordFlags, SECONDARY_DOMINANT_CHORD_FLAGS) && (NextRandom() % 10 == 0)) {
+        Chord secondaryDominantChord = CreateSecondaryDominantChord(nextChord.root);
+        chordQueue->chords[0] = secondaryDominantChord;
+        chordQueue->chords[1] = nextChord;
+        chordQueue->count = 2;
+        return secondaryDominantChord;
+    }
+
+    if (hasAnyFlags(chordFlags, DIMINISHED_PASSING_CHORD_FLAGS) && (NextRandom() % 10 == 0)) {
+        Chord diminishedPassingChord = CreateDiminishedPassingChord(nextChord.root);
+        chordQueue->chords[0] = diminishedPassingChord;
+        chordQueue->chords[1] = nextChord;
+        chordQueue->count = 2;
+        return diminishedPassingChord;
+    }
+
+    chordQueue->chords[chordQueue->count++] = nextChord;
+    return nextChord;
 }
 

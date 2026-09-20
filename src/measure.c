@@ -85,7 +85,12 @@ static void GetNextMelodyEvent(const MelodyState *state, MusicalEvent *result, b
             // first note of every measure is a chord note, will sound intentional probably?
             noteType = NOTE_TYPE_CHORD;
         } else {
-            noteType = NextRandom() % NOTE_TYPES_COUNT;
+            WeightedIdList list = {0};
+            AppendWeightedId(&list, (WeightedId){ .id = NOTE_TYPE_CHORD, .weight = MELODY_CHORD_NOTE_WEIGHT });
+            AppendWeightedId(&list, (WeightedId){ .id = NOTE_TYPE_SCALE, .weight = MELODY_SCALE_NOTE_WEIGHT });
+            AppendWeightedId(&list, (WeightedId){ .id = NOTE_TYPE_CHROMATIC, .weight = MELODY_CHROMATIC_NOTE_WEIGHT });
+            WeightedId item = GetRandomIdByWeight(&list);
+            noteType = item.id;
         }
 
         switch (noteType) {

@@ -164,5 +164,33 @@ static void RunTests() {
         ASSERT(inversion.notes[2] == NoteWithOctave(NOTE_E, octave));
         ASSERT(inversion.notes[3] == NoteWithOctave(NOTE_G, octave));
     }
+
+    {
+        // transitional chords
+
+        Chord chord = CreateSecondaryDominantChord(NOTE_A);
+        ASSERT(chord.root == NOTE_E);
+        ASSERT(chord.third == NOTE_G_SHARP);
+        ASSERT(chord.fifth == NOTE_B);
+        ASSERT(chord.seventh == NOTE_D);
+
+        chord = CreateSecondaryDominantChord(NOTE_A_FLAT);
+        ASSERT(chord.root == NOTE_E_FLAT);
+        ASSERT(chord.third == NOTE_G);
+        ASSERT(chord.fifth == NOTE_B_FLAT);
+        ASSERT(chord.seventh == NOTE_D_FLAT);
+
+        chord = CreateDiminishedPassingChord(NOTE_A);
+        ASSERT(chord.root == NOTE_A_FLAT);
+        ASSERT(chord.third == NOTE_B);
+        ASSERT(chord.fifth == NOTE_D);
+        ASSERT(chord.seventh == NOTE_F);
+
+        chord = CreateDiminishedPassingChord(NOTE_A_FLAT);
+        ASSERT(chord.root == NOTE_G);
+        ASSERT(chord.third == NOTE_B_FLAT);
+        ASSERT(chord.fifth == NOTE_D_FLAT);
+        ASSERT(chord.seventh == NOTE_E);
+    }
 }
 

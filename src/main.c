@@ -1,13 +1,18 @@
 #include "main.h"
 
+#include "random.c"
 #include "tone.c"
 #include "chord.c"
 #include "scale.c"
 #include "music_buffer.c"
 #include "musical_event.c"
 #include "measure.c"
-#include "sequencer.c"
+
 #include "audio_thread.c"
+
+// visuals
+#include "gui_container.c"
+#include "sequencer.c"
 #include "menu.c"
 
 #ifdef DEBUG
@@ -20,19 +25,6 @@
 // }
 
 void Update(State *state) {
-    bool ctrlDown = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
-    if (ctrlDown) {
-        if (IsKeyPressed(KEY_ONE)) {
-            state->viewFlags ^= VIEW_FLAG_MELODY;
-        }
-        if (IsKeyPressed(KEY_TWO)) {
-            state->viewFlags ^= VIEW_FLAG_HARMONY;
-        }
-        if (IsKeyPressed(KEY_THREE)) {
-            state->viewFlags ^= VIEW_FLAG_MENU;
-        }
-    }
-
     bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
 
     if (!isAudioBackBufferPrepared) {
@@ -46,7 +38,7 @@ void Update(State *state) {
         // regenerate into audio back buffer
         MusicBuffer *audioBackBuffer = GetAudioBackBuffer();
         audioBackBuffer->scale = state->menu.scale;
-        audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, audioBackBuffer->chord);
+        audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, &state->chordQueue);
         audioBackBuffer->rhythmType = state->menu.rhythmType;
 
         for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
@@ -71,22 +63,9 @@ void Update(State *state) {
         atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, true, memory_order_release);
     }
 
-    const bool hasMelodyView = hasFlag(state->viewFlags, VIEW_FLAG_MELODY);
-    const bool hasHarmonyView = hasFlag(state->viewFlags, VIEW_FLAG_HARMONY);
-    const bool hasMenuView = hasFlag(state->viewFlags, VIEW_FLAG_MENU);
+    GuiContainerUpdate(state->guiContainers);
 
-    const int visibleViews = (hasMelodyView ? 1 : 0) + (hasHarmonyView ? 1 : 0) + (hasMenuView ? 1 : 0);
-
-    state->viewHeight = (visibleViews > 0) ? (GetScreenHeight() / visibleViews) : 0.0f;
-
-    Rectangle menuOuterRectangle = {
-        .x = 0,
-        .y = (hasMelodyView ? state->viewHeight : 0.0f) + (hasHarmonyView ? state->viewHeight : 0.0f),
-        .width = GetScreenWidth(),
-        .height = state->viewHeight,
-    };
-
-    MenuUpdate(&state->menu, menuOuterRectangle);
+    MenuUpdate(&state->menu);
 }
 
 void Render(const State *state) {
@@ -94,8 +73,10 @@ void Render(const State *state) {
 
     ClearBackground((Color){0,0,0,255});
 
+    GuiContainerRender(state->guiContainers, state->font);
     SequencerRender(state);
-    MenuRender(&state->menu);
+
+    MenuRender(&state->menu, state->font);
 
     EndDrawing();
 }
@@ -121,15 +102,15 @@ int main() {
     RunTests();
 #endif
 
+    // TODO: bpm should be configurable at runtime
     sharedState->bpm = 120.0f;
 
     InitMusicBuffers(state);
-
-    state->viewFlags = DEFAULT_VIEW_FLAGS;
+    InitChordQueue(&state->chordQueue, GetAudioBackBuffer()->chord);
 
     SetTraceLogLevel(LOG_WARNING);
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-    InitWindow(600, 600, "The music program");
+    InitWindow(1600, 1200, "The music program");
     SetTargetFPS(60);
 
     InitAudioDevice();
@@ -142,14 +123,17 @@ int main() {
 
     PlayAudioStream(stream);
 
-    MenuInitialize(&state->menu);
+    state->font = LoadFontEx("ComicMono.ttf", 300, NULL, 0);
+
+    GuiContainerInitialize(state->guiContainers);
+    MenuInitialize(&state->menu, &state->guiContainers[GUI_CONTAINER_MENU]);
 
     while (!WindowShouldClose()) {
         Update(state);
         Render(state);
     }
 
-    MenuDeinitialize(&state->menu);
+    UnloadFont(state->font);
 
     StopAudioStream(stream);
     UnloadAudioStream(stream);

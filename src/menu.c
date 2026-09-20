@@ -1,4 +1,12 @@
-#define MENU_HEIGHT 16
+#define MENU_BG_COLOR COLOR(.05f,.05f,.05f)
+#define MENU_ITEM_BG_COLOR COLOR(.1f,.1f,.1f)
+
+#define MENU_ITEM_BORDER_COLOR COLOR(.2f,.2f,.2f)
+#define MENU_ITEM_BORDER_SELECTED_COLOR COLOR(.0f,.2f,.0f)
+
+#define MENU_ITEM_FG_COLOR COLOR(1.f,1.f,1.f)
+#define MENU_ITEM_FG_HOVER_COLOR COLOR(1.f,1.f,0.f)
+#define MENU_ITEM_FG_SELECTED_COLOR COLOR(0.f,1.f,0.f)
 
 enum {
     MENU_ITEM_ROOT_NOTE,
@@ -6,25 +14,17 @@ enum {
     MENU_ITEM_RHYTHM_TYPE,
 };
 
-static float GetMenuLineHeight(const Menu *menu) {
-    return menu->innerRectangle.height / MENU_HEIGHT;
-}
-
-static float GetMenuPadding(const Menu *menu) {
-    return GetScreenWidth() / 200.0f;
-}
-
 static Rectangle FloatBoxToRectangle(const Menu *menu, FloatBox box) {
     return (Rectangle) {
-        .x = menu->innerRectangle.x + (menu->innerRectangle.width * box.x),
-        .y = menu->innerRectangle.y + (menu->innerRectangle.height * box.y),
-        .width = menu->innerRectangle.width * box.width,
-        .height = menu->innerRectangle.height * box.height,
+        .x = menu->rectangle.x + (menu->rectangle.width * box.x),
+        .y = menu->rectangle.y + (menu->rectangle.height * box.y),
+        .width = menu->rectangle.width * box.width,
+        .height = menu->rectangle.height * box.height,
     };
 }
 
-static void MenuInitialize(Menu *menu) {
-    menu->font = LoadFontEx("ComicMono.ttf", 100, NULL, 0);
+static void MenuInitialize(Menu *menu, const GuiContainer *guiContainer) {
+    menu->guiContainer = guiContainer;
     menu->rootNote = NOTE_C;
     menu->scale = CreateScaleFromType(menu->rootNote, SCALE_MAJOR);
 
@@ -231,15 +231,13 @@ static void MenuInitialize(Menu *menu) {
     }
 }
 
-static void MenuUpdate(Menu *menu, Rectangle outerRectangle) {
-    menu->outerRectangle = outerRectangle;
-    const float padding = GetMenuPadding(menu);
-    menu->innerRectangle = (Rectangle){
-        .x = outerRectangle.x + padding,
-        .y = outerRectangle.y + padding,
-        .width = outerRectangle.width - (padding * 2),
-        .height = outerRectangle.height - (padding * 2),
-    };
+static void MenuUpdate(Menu *menu) {
+    ASSERT(menu->guiContainer != NULL);
+    if (!IsGuiContainerExpanded(menu->guiContainer)) {
+        return;
+    }
+
+    menu->rectangle = menu->guiContainer->contentRectangle;
 
     Vector2 mousePosition = GetMousePosition();
     menu->hoverIndex = -1;
@@ -287,23 +285,18 @@ static void MenuUpdate(Menu *menu, Rectangle outerRectangle) {
     }
 }
 
-#define MENU_ITEM_BG_COLOR COLOR(.1f,.1f,.1f)
+static void MenuRender(const Menu *menu, Font font) {
+    ASSERT(menu->guiContainer != NULL);
+    if (!IsGuiContainerExpanded(menu->guiContainer)) {
+        return;
+    }
 
-#define MENU_ITEM_BORDER_COLOR COLOR(.2f,.2f,.2f)
-#define MENU_ITEM_BORDER_SELECTED_COLOR COLOR(.0f,.2f,.0f)
+    DrawRectangleRec(menu->rectangle, MENU_BG_COLOR);
 
-#define MENU_ITEM_FG_COLOR COLOR(1.f,1.f,1.f)
-#define MENU_ITEM_FG_HOVER_COLOR COLOR(1.f,1.f,0.f)
-#define MENU_ITEM_FG_SELECTED_COLOR COLOR(0.f,1.f,0.f)
-
-static void MenuRender(const Menu *menu) {
-    float lineHeight = GetMenuLineHeight(menu);
-    float padding = GetMenuPadding(menu);
     for (int i = 0; i < MENU_ITEM_COUNT; i++) {
         MenuItem item = menu->items[i];
         Color fgColor = MENU_ITEM_FG_COLOR;
         Color borderColor = MENU_ITEM_BORDER_COLOR;
-        Color textColorSelected = GREEN;
         switch (item.type) {
             default:
                 break;
@@ -342,18 +335,14 @@ static void MenuRender(const Menu *menu) {
             .y = rectangle.y + rectangle.height / 2,
         };
 
-        const float fontSize = 30.0f;
-        const Vector2 textSize = MeasureTextEx(menu->font, item.text, fontSize, 0);
+        const float fontSize = GetFontSize();
+        const Vector2 textSize = MeasureTextEx(font, item.text, fontSize, 0);
         const Vector2 origin = {
             textSize.x / 2,
             textSize.y / 2,
         };
 
-        DrawTextPro(menu->font, item.text, textPosition, origin, 0.0f, fontSize, 0.0f, fgColor);
+        DrawTextPro(font, item.text, textPosition, origin, 0.0f, fontSize, 0.0f, fgColor);
     }
-}
-
-static void MenuDeinitialize(Menu *menu) {
-    UnloadFont(menu->font);
 }
 

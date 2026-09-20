@@ -1,24 +1,22 @@
 void SequencerRender(const State *state) {
     const MusicBuffer *visualBuffer = GetReadonlyMirrorBuffer(state->mirrorBuffers, state->mirrorFrontBufferIndex);
 
-    float viewStartY = 0;
-
     // for drawing accidentals
     const Scale cMajorScale = CreateScaleFromType(NOTE_C, SCALE_MAJOR);
 
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
+        const GuiContainer *guiContainer = NULL;
         switch (measureIndex) {
-            case MEASURE_MELODY:
-                if (!hasFlag(state->viewFlags, VIEW_FLAG_MELODY)) {
-                    continue;
-                }
-                break;
-            case MEASURE_HARMONY:
-                if (!hasFlag(state->viewFlags, VIEW_FLAG_HARMONY)) {
-                    continue;
-                }
-                break;
+            default: ASSERT(false); break;
+            case MEASURE_MELODY: guiContainer = &state->guiContainers[GUI_CONTAINER_MELODY]; break;
+            case MEASURE_HARMONY: guiContainer = &state->guiContainers[GUI_CONTAINER_HARMONY]; break;
         }
+
+        if (!IsGuiContainerExpanded(guiContainer)) {
+            continue;
+        }
+
+        ASSERT(guiContainer != NULL);
 
         const Measure *measure = &visualBuffer->measures[measureIndex];
         const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
@@ -26,13 +24,7 @@ void SequencerRender(const State *state) {
         const float cursorXPosition = atomic_load_explicit(&measurePlaybackState->cursorXPosition, memory_order_relaxed);
         const int currentEventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
 
-        Rectangle measureBackground;
-        measureBackground.x = 0;
-        measureBackground.y = viewStartY;
-        measureBackground.width = GetScreenWidth();
-        measureBackground.height = state->viewHeight;
-
-        viewStartY += state->viewHeight;
+        Rectangle measureBackground = guiContainer->contentRectangle;
 
         Color backgroundColor;
         if (measureIndex == 0) {
