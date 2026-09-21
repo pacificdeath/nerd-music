@@ -40,6 +40,17 @@ typedef struct MeasureRenderSettings {
     float eventHeight;
 } MeasureRenderSettings;
 
+#define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
+
+#define COLOR_CHORD_NOTE_ACTIVE_FG COLOR(.5,1,.5)
+#define COLOR_CHORD_NOTE_INACTIVE_FG COLOR(.25,.5,.25)
+
+#define COLOR_SCALE_NOTE_ACTIVE_FG COLOR(.5,.5,1)
+#define COLOR_SCALE_NOTE_INACTIVE_FG COLOR(.25,.25,.5)
+
+#define COLOR_CHROMATIC_NOTE_ACTIVE_FG COLOR(1,.5,.5)
+#define COLOR_CHROMATIC_NOTE_INACTIVE_FG COLOR(.5,.25,.25)
+
 static void MeasureRender(MeasureRenderSettings settings) {
     const MusicBuffer *buffer = settings.buffer;
     const int measureIndex = settings.measureIndex;
@@ -127,27 +138,32 @@ static void MeasureRender(MeasureRenderSettings settings) {
 
             rectangle.height = eventHeight;
 
-            Color color;
+            Color activeColor;
+            Color inactiveColor;
+
             if (IsNoteInChord(buffer->chord, tone.note)) {
-                color = COLOR_CHORD_NOTE_FG;
+                activeColor = COLOR_CHORD_NOTE_ACTIVE_FG;
+                inactiveColor = COLOR_CHORD_NOTE_INACTIVE_FG;
             } else if (IsNoteInScale(buffer->scale, tone.note)) {
-                color = COLOR_SCALE_NOTE_FG;
+                activeColor = COLOR_SCALE_NOTE_ACTIVE_FG;
+                inactiveColor = COLOR_SCALE_NOTE_INACTIVE_FG;
             } else {
-                color = COLOR_CHROMATIC_NOTE_FG;
+                activeColor = COLOR_CHROMATIC_NOTE_ACTIVE_FG;
+                inactiveColor = COLOR_CHROMATIC_NOTE_INACTIVE_FG;
             }
 
             switch (cursorTimeDimension) {
                 case CURSOR_AT_PAST_EVENT:
-                    DrawRectangleRec(rectangle, color);
+                    DrawRectangleRec(rectangle, inactiveColor);
                     break;
                 case CURSOR_AT_CURRENT_EVENT:
-                    DrawRectangleLinesEx(rectangle, 1, color);
+                    DrawRectangleLinesEx(rectangle, 1, activeColor);
                     Rectangle progressRectangle = rectangle;
                     progressRectangle.width *= localCursorXPosition;
-                    DrawRectangleRec(progressRectangle, color);
+                    DrawRectangleRec(progressRectangle, activeColor);
                     break;
                 case CURSOR_AT_FUTURE_EVENT:
-                    DrawRectangleLinesEx(rectangle, 1, color);
+                    DrawRectangleLinesEx(rectangle, 1, inactiveColor);
                     break;
             }
         }
@@ -165,6 +181,32 @@ static void MeasureRender(MeasureRenderSettings settings) {
         }
 
         eventOffset += eventWidth;
+    }
+}
+
+static void SequencerUpdate(const State *state, Sequencer *sequencer) {
+    const MusicBuffer *visualFrontBuffer = GetReadonlyMirrorBuffer(state->mirrorBuffers, state->mirrorFrontBufferIndex);
+
+    for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
+        const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
+
+        int lastReportedEventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
+        float lastReportedEventPosition = atomic_load_explicit(&measurePlaybackState->eventPosition, memory_order_relaxed);
+        double lastReportedTimestamp = atomic_load_explicit(&measurePlaybackState->timestamp, memory_order_relaxed);
+
+        ASSERT(lastReportedEventIndex < MEASURE_EVENT_CAPACITY);
+
+        const MusicalEvent *event = &visualFrontBuffer->measures[measureIndex].events[lastReportedEventIndex];
+        float eventDuration = MusicalEventDuration(event);
+
+        double sequencerTimestamp = GetTime();
+        double elapsed = sequencerTimestamp - lastReportedTimestamp;
+        double predictedEventPosition = lastReportedEventPosition + (elapsed / eventDuration);
+
+        sequencer->cursors[measureIndex] = (Cursor) {
+            .eventIndex = lastReportedEventIndex,
+            .eventPosition = predictedEventPosition,
+        };
     }
 }
 
@@ -200,27 +242,26 @@ static void SequencerRender(const State *state) {
         DrawRectangleLinesEx(measureBackground, 2, BLACK);
 
         // TODO: this loop draws the background, but it currently looks kind of wacky, maybe remove or something
-        // for (int note = LOWEST_NOTE; note < HIGHEST_NOTE; note++) {
-        //     int index = note - LOWEST_NOTE + 1;
-        //     bool isAccidental = !IsNoteInScale(cMajorScale, note);
-        //     Color color = isAccidental
-        //         ? (Color){8,8,8,255}
-        //         : (Color){16,16,16,255};
-        //
-        //     Rectangle rectangle = {
-        //         .x = measureBackground.x,
-        //         .y = measureBackground.y + measureBackground.height - (eventHeight * index),
-        //         .width = measureBackground.width,
-        //         .height = eventHeight,
-        //     };
-        //     DrawRectangleRec(rectangle, color);
-        // }
+        for (int note = LOWEST_NOTE; note < HIGHEST_NOTE; note++) {
+            int index = note - LOWEST_NOTE + 1;
+            bool isAccidental = !IsNoteInScale(cMajorScale, note);
+            Color color = isAccidental
+                ? (Color){8,8,8,255}
+                : (Color){16,16,16,255};
 
-        const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
+            Rectangle rectangle = {
+                .x = measureBackground.x,
+                .y = measureBackground.y + measureBackground.height - (eventHeight * index),
+                .width = measureBackground.width,
+                .height = eventHeight,
+            };
+            DrawRectangleRec(rectangle, color);
+        }
 
         // relative to current event index (0 = start of currentEventIndex, 1.0 = end of currentEventIndex)
-        const Cursor cursor = atomic_load_explicit(&measurePlaybackState->cursor, memory_order_relaxed);
         const Measure *currentMeasure = &visualFrontBuffer->measures[measureIndex];
+
+        Cursor cursor = state->sequencer.cursors[measureIndex];
 
         // relative to full visual measure in pixels
         const float absoluteCursorXPosition = GetAbsoluteCursorXPosition(currentMeasure, measureBackground.width, cursor);

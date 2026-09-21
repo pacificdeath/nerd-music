@@ -73,6 +73,8 @@ void Update(State *state) {
 
     GuiContainerUpdate(state->guiContainers);
 
+    SequencerUpdate(state, &state->sequencer);
+
     MenuUpdate(&state->menu);
 }
 

@@ -13,33 +13,43 @@ static float NoteToFrequency(int note) {
 static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample) {
     ASSERT(measureIndex < MEASURE_TOTAL);
 
+    MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
+
     unsigned int eventStartSample = 0;
-    for (int eventIndex = 0; eventIndex < measure->eventCount; eventIndex++) {
-        unsigned int eventDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
-        unsigned int eventEndSample = eventStartSample + eventDuration;
+
+    int eventIndex = 0;
+    float eventPosition = 0;
+
+    for (; eventIndex < measure->eventCount; eventIndex++) {
+        unsigned int eventSampleDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
+        unsigned int eventEndSample = eventStartSample + eventSampleDuration;
+
+        eventPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
+
         if (currentSample >= eventEndSample) {
             // skip elapsed events
             eventStartSample = eventEndSample;
             continue;
         }
 
-        MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
-
-        float cursorXPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
-
-        Cursor cursor = {
-            .eventIndex = eventIndex,
-            .eventPosition = cursorXPosition,
-        };
-
         // For visualization on main thread
-        atomic_store_explicit(&measurePlaybackState->cursor, cursor, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->eventPosition, eventPosition, memory_order_relaxed);
+        atomic_store_explicit(&measurePlaybackState->timestamp, GetTime(), memory_order_relaxed);
 
         measurePlaybackState->eventStartSample = eventStartSample;
         measurePlaybackState->eventEndSample = eventEndSample;
 
         return true;
     }
+
+    ASSERT(eventIndex < MEASURE_EVENT_CAPACITY);
+
+    // stores the last event
+    atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
+    // stores a position that is beyond the event length (larger than 1.0)
+    atomic_store_explicit(&measurePlaybackState->eventPosition, eventPosition, memory_order_relaxed);
+    atomic_store_explicit(&measurePlaybackState->timestamp, GetTime(), memory_order_relaxed);
 
     // current sample has passed the duration of the entire measure
     return false;
@@ -56,7 +66,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
     unsigned int frameIndices[MEASURE_TOTAL] = {0};
     // frame indices relative to the current music buffer, these DO reset on buffer swaps
     unsigned int measureFrameIndices[MEASURE_TOTAL] = {0};
-    // once all the samples of a measure (or plural if a buffer swap happened), they are marked "obtained"
+    // once all the samples of a measure (or plural if a buffer swap happened) have been handled, they are marked "obtained"
     bool measureSamplesObtained[MEASURE_TOTAL] = {0};
 
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
@@ -85,7 +95,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             const unsigned int measureFrameIndex = measureFrameIndices[measureIndex];
 
-            // UpdateMeasurePosition returns wheter or not we are still inside the music buffer
+            // returns wheter or not we are still inside the music buffer
             // note that a buffer swap will not happen until all measures are ready for it
             if (UpdateMeasurePosition(measure, measureIndex, measureFrameIndex)) {
                 shouldBufferSwap = false;
@@ -134,8 +144,8 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
-            const Cursor cursor = atomic_load_explicit(&measurePlaybackState->cursor, memory_order_relaxed);
-            MusicalEvent *event = &measure->events[cursor.eventIndex];
+            const int eventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
+            MusicalEvent *event = &measure->events[eventIndex];
 
             const unsigned int eventStartSample = measurePlaybackState->eventStartSample;
             const unsigned int eventEndSample = measurePlaybackState->eventEndSample;

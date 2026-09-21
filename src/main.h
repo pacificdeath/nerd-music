@@ -95,12 +95,7 @@ typedef uint64_t flagtype;
 
 #define MEASURE_FLAG_MUTED (FLAG(0))
 
-// colors
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
-#define COLOR_MEASURE_BG COLOR(.1f,.1f,.1f)
-#define COLOR_CHORD_NOTE_FG COLOR(.5,1,.5)
-#define COLOR_SCALE_NOTE_FG COLOR(.5,.5,1)
-#define COLOR_CHROMATIC_NOTE_FG COLOR(1,.5,.5)
 
 enum {
     DEFAULT_AUDIO_BACK_BUFFER_INDEX = 0,
@@ -229,7 +224,9 @@ typedef struct Cursor {
 } Cursor;
 
 typedef struct MeasurePlaybackState {
-    _Atomic(Cursor) cursor;
+    _Atomic(int) eventIndex;
+    _Atomic(float) eventPosition;
+    _Atomic(double) timestamp;
 
     // use only on audio thread
     unsigned int eventStartSample;
@@ -267,6 +264,12 @@ typedef struct GuiContainer {
     char buttonChar;
 } GuiContainer;
 
+typedef struct Sequencer {
+    Rectangle rectangle;
+    GuiContainer *guiContainers[MEASURE_TOTAL];
+    Cursor cursors[MEASURE_TOTAL];
+} Sequencer;
+
 #define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE + RHYTHM_TYPE_COUNT)
 typedef struct Menu {
     const GuiContainer *guiContainer;
@@ -290,6 +293,8 @@ typedef struct State {
     int mirrorFrontBufferIndex;
 
     GuiContainer guiContainers[GUI_CONTAINER_COUNT];
+
+    Sequencer sequencer;
 
     Menu menu;
 
