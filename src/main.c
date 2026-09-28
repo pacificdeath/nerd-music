@@ -13,7 +13,9 @@
 // visuals
 #include "gui_container.c"
 #include "sequencer.c"
-#include "menu.c"
+#include "terminal.c"
+#include "controller.c"
+#include "song_name.c"
 
 #ifdef DEBUG
 #include "test.c"
@@ -24,8 +26,101 @@
 //     return target + (current - target) * multiplier;
 // }
 
+void UpdateStateSong(State *state, uint64_t songIndex) {
+    state->songIndex = songIndex;
+    GetSongName(songIndex, &state->songName);
+    sharedState->randomState = DeterministicRandom(songIndex);
+}
+
 void Update(State *state) {
+    bool controllerIsPlaying = hasAllFlags(state->controller.flags, FLAG_CONTROLLER_PLAY);
+
+    int playState = atomic_load_explicit(&sharedState->playState, memory_order_acquire);
     bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
+
+    bool shouldStop = false;
+
+    bool requestNextSong = hasAllFlags(state->controller.flags, FLAG_CONTROLLER_NEXT_SONG);
+    bool requestPreviousSong = hasAllFlags(state->controller.flags, FLAG_CONTROLLER_PREVIOUS_SONG);
+
+    if (requestNextSong) {
+        state->controller.flags &= ~FLAG_CONTROLLER_NEXT_SONG;
+
+        if (state->songIndex < SONG_LAST_INDEX) {
+            shouldStop = true;
+
+            uint64_t nextSongIndex = state->songIndex + 1;
+            UpdateStateSong(state, nextSongIndex);
+        }
+    } else if (requestPreviousSong) {
+        state->controller.flags &= ~FLAG_CONTROLLER_PREVIOUS_SONG;
+
+        if (state->songIndex > SONG_FIRST_INDEX) {
+            shouldStop = true;
+
+            uint64_t previousSongIndex = state->songIndex - 1;
+            UpdateStateSong(state, previousSongIndex);
+        }
+    }
+
+    switch (playState) {
+        default: ASSERT(false); return;
+        case PLAY_STATE_IDLE:
+        {
+            // before transitioning into the running state, the audio back buffer must be prepared
+            if (controllerIsPlaying && isAudioBackBufferPrepared) {
+                atomic_store_explicit(&sharedState->playState, PLAY_STATE_RUNNING, memory_order_release);
+                state->isPlaying = true;
+            }
+            break;
+        }
+        case PLAY_STATE_RUNNING:
+        {
+            if (controllerIsPlaying) {
+                break;
+            } else {
+                shouldStop = true;
+
+                // reset random state to return to the beginning of the song
+                sharedState->randomState = DeterministicRandom(state->songIndex);
+                break;
+            }
+        }
+        case PLAY_STATE_STOP_AUDIO_THREAD:
+        {
+            // waiting for audio thread to stop
+            return;
+        }
+        case PLAY_STATE_STOP_MAIN_THREAD:
+        {
+            // here the main thread has ownership of all the
+            // shared state and can safely reset all of it
+
+            for (int i = 0; i < AUDIO_BUFFER_COUNT; i++) {
+                sharedState->audioBuffers[i] = (MusicBuffer){0};
+            }
+
+            for (int i = 0; i < MIRROR_BUFFER_COUNT; i++) {
+                state->mirrorBuffers[i] = (MusicBuffer){0};
+            }
+
+            atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, false, memory_order_relaxed);
+            atomic_store_explicit(&sharedState->playState, PLAY_STATE_IDLE, memory_order_relaxed);
+
+            InitMusicBuffers(state);
+            InitChordQueue(&state->chordQueue, GetAudioBackBuffer()->chord);
+
+            state->isPlaying = false;
+
+            return;
+        }
+    }
+
+    if (shouldStop) {
+        // stop audio thread first in order to let the main thread do full music buffer cleanup after
+        atomic_store_explicit(&sharedState->playState, PLAY_STATE_STOP_AUDIO_THREAD, memory_order_release);
+        return;
+    }
 
     if (!isAudioBackBufferPrepared) {
         {
@@ -45,9 +140,10 @@ void Update(State *state) {
 
         // regenerate into audio back buffer
         MusicBuffer *audioBackBuffer = GetAudioBackBuffer();
-        audioBackBuffer->scale = state->menu.scale;
+
+        audioBackBuffer->scale = state->terminal.scale;
         audioBackBuffer->chord = GetNextChordInProgression(audioBackBuffer->scale, &state->chordQueue);
-        audioBackBuffer->rhythmType = state->menu.rhythmType;
+        audioBackBuffer->rhythmType = state->terminal.rhythmType;
 
         for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
             Measure *measure = &audioBackBuffer->measures[measureIndex];
@@ -71,11 +167,28 @@ void Update(State *state) {
         atomic_store_explicit(&sharedState->isAudioBackBufferPrepared, true, memory_order_release);
     }
 
-    GuiContainerUpdate(state->guiContainers);
+    Rectangle controllerRectangle;
+    {
+        controllerRectangle.x = 0;
+        controllerRectangle.y = GetScreenHeight() * 0.9;
+        controllerRectangle.width = GetScreenWidth();
+        controllerRectangle.height = GetScreenHeight() - controllerRectangle.y;
+    }
+
+    ControllerUpdate(state, &state->controller, controllerRectangle);
+
+    Rectangle bigRectangle = {
+        .x = controllerRectangle.x,
+        .y = controllerRectangle.y,
+        .width = GetScreenWidth(),
+        .height = GetScreenHeight() - controllerRectangle.height,
+    };
+
+    GuiContainerUpdate(bigRectangle, state->guiContainers);
 
     SequencerUpdate(state, &state->sequencer);
 
-    MenuUpdate(&state->menu);
+    TerminalUpdate(&state->terminal);
 }
 
 void Render(const State *state) {
@@ -83,10 +196,12 @@ void Render(const State *state) {
 
     ClearBackground((Color){0,0,0,255});
 
+    ControllerRender(state, &state->controller, state->font);
+
     GuiContainerRender(state->guiContainers, state->font);
     SequencerRender(state);
 
-    MenuRender(&state->menu, state->font);
+    TerminalRender(&state->terminal, state->font);
 
     EndDrawing();
 }
@@ -115,6 +230,11 @@ int main() {
     // TODO: bpm should be configurable at runtime
     sharedState->bpm = 120.0f;
 
+    state->songIndex = 1;
+    GetSongName(state->songIndex, &state->songName);
+
+    sharedState->randomState = DeterministicRandom(state->songIndex);
+
     InitMusicBuffers(state);
     InitChordQueue(&state->chordQueue, GetAudioBackBuffer()->chord);
 
@@ -129,16 +249,15 @@ int main() {
     AudioStream stream = LoadAudioStream(SAMPLE_RATE, SAMPLE_SIZE, CHANNELS);
     SetAudioStreamCallback(stream, AudioInputCallback);
 
-    sharedState->randomState = 90; // TODO
-
     PlayAudioStream(stream);
 
     state->font = LoadFontEx("ComicMono.ttf", 300, NULL, 0);
 
     GuiContainerInitialize(state->guiContainers);
-    MenuInitialize(&state->menu, &state->guiContainers[GUI_CONTAINER_MENU]);
+    TerminalInitialize(&state->terminal, &state->guiContainers[GUI_CONTAINER_MENU]);
 
     while (!WindowShouldClose()) {
+        state->bpm = atomic_load_explicit(&sharedState->bpm, memory_order_relaxed);
         Update(state);
         Render(state);
     }

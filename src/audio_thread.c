@@ -10,7 +10,14 @@ static float NoteToFrequency(int note) {
     return 440.0f * powf(2.0f, semitoneIndex / 12.0f);
 }
 
-static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample) {
+static void CleanMeasurePlaybackState(MeasurePlaybackState *measurePlaybackState) {
+    atomic_store_explicit(&measurePlaybackState->eventIndex, 0, memory_order_relaxed);
+    atomic_store_explicit(&measurePlaybackState->eventPosition, 0, memory_order_relaxed);
+    atomic_store_explicit(&measurePlaybackState->timestamp, GetTime(), memory_order_relaxed);
+}
+
+// returns whether or not we are still inside the music buffer
+static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned int currentSample, float bpm) {
     ASSERT(measureIndex < MEASURE_TOTAL);
 
     MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
@@ -21,7 +28,7 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
     float eventPosition = 0;
 
     for (; eventIndex < measure->eventCount; eventIndex++) {
-        unsigned int eventSampleDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration);
+        unsigned int eventSampleDuration = MusicalEventDurationToSampleDuration(measure->events[eventIndex].duration, bpm);
         unsigned int eventEndSample = eventStartSample + eventSampleDuration;
 
         eventPosition = (float)(currentSample - eventStartSample) / (float)(eventEndSample - eventStartSample);
@@ -43,10 +50,20 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
         return true;
     }
 
-    ASSERT(eventIndex < MEASURE_EVENT_CAPACITY);
+    if (measure->eventCount == 0) {
+        // this is the start of the first measure
+        // set all the data to 0
+        CleanMeasurePlaybackState(measurePlaybackState);
+        audioThreadState->currentSample = 0;
+
+        return false;
+    }
+
+    int lastEventIndex = measure->eventCount - 1;
+    ASSERT(lastEventIndex < MEASURE_EVENT_CAPACITY);
 
     // stores the last event
-    atomic_store_explicit(&measurePlaybackState->eventIndex, eventIndex, memory_order_relaxed);
+    atomic_store_explicit(&measurePlaybackState->eventIndex, lastEventIndex, memory_order_relaxed);
     // stores a position that is beyond the event length (larger than 1.0)
     atomic_store_explicit(&measurePlaybackState->eventPosition, eventPosition, memory_order_relaxed);
     atomic_store_explicit(&measurePlaybackState->timestamp, GetTime(), memory_order_relaxed);
@@ -56,6 +73,43 @@ static bool UpdateMeasurePosition(Measure *measure, int measureIndex, unsigned i
 }
 
 static void AudioInputCallback(void *buffer, unsigned int frames) {
+    bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
+    if (!isAudioBackBufferPrepared) {
+        return;
+    }
+
+    int playState = atomic_load_explicit(&sharedState->playState, memory_order_acquire);
+
+    switch (playState) {
+        default: ASSERT(false); return;
+        case PLAY_STATE_IDLE:
+        {
+            // do nothing
+            return;
+        }
+        case PLAY_STATE_RUNNING:
+        {
+            // proceed
+            break;
+        }
+        case PLAY_STATE_STOP_AUDIO_THREAD:
+        {
+            for (int i = 0; i < MEASURE_TOTAL; i++) {
+                MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[i];
+                CleanMeasurePlaybackState(measurePlaybackState);
+            }
+            audioThreadState->currentSample = 0;
+
+            atomic_store_explicit(&sharedState->playState, PLAY_STATE_STOP_MAIN_THREAD, memory_order_release);
+            return;
+        }
+        case PLAY_STATE_STOP_MAIN_THREAD:
+        {
+            // main thread is finalizing stop
+            return;
+        }
+    }
+
     for (unsigned int i = 0; i < frames; i++) {
         audioThreadState->bigBuffer[i] = 0;
     }
@@ -72,6 +126,8 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
         measureFrameIndices[measureIndex] = audioThreadState->currentSample;
     }
+
+    float bpm = atomic_load_explicit(&sharedState->bpm, memory_order_relaxed);
 
     while (true) {
         bool allMeasureSamplesObtained = true;
@@ -95,9 +151,8 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
 
             const unsigned int measureFrameIndex = measureFrameIndices[measureIndex];
 
-            // returns wheter or not we are still inside the music buffer
             // note that a buffer swap will not happen until all measures are ready for it
-            if (UpdateMeasurePosition(measure, measureIndex, measureFrameIndex)) {
+            if (UpdateMeasurePosition(measure, measureIndex, measureFrameIndex, bpm)) {
                 shouldBufferSwap = false;
             }
 
@@ -117,7 +172,6 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
         }
 
         if (shouldBufferSwap) {
-            bool isAudioBackBufferPrepared = atomic_load_explicit(&sharedState->isAudioBackBufferPrepared, memory_order_acquire);
             if (!isAudioBackBufferPrepared) {
                 // there seems to be no more music in the world
                 goto NoMusicLeft;
@@ -150,7 +204,7 @@ static void AudioInputCallback(void *buffer, unsigned int frames) {
             const unsigned int eventStartSample = measurePlaybackState->eventStartSample;
             const unsigned int eventEndSample = measurePlaybackState->eventEndSample;
 
-            const unsigned int eventDuration =  MusicalEventDurationToSampleDuration(event->duration);
+            const unsigned int eventDuration = MusicalEventDurationToSampleDuration(event->duration, bpm);
 
             // TODO: configurable:
             const float eventFadeSamples = eventDuration * 0.3f;

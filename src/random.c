@@ -9,13 +9,18 @@ typedef struct WeightedIdList {
     int count;
 } WeightedIdList;
 
-static uint64_t NextRandom() {
-    uint64_t x = sharedState->randomState;
-    x ^= x << 13;
-    x ^= x >> 7;
-    x ^= x << 17;
-    sharedState->randomState = x;
+static uint64_t DeterministicRandom(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    x ^= x >> 31;
     return x;
+}
+
+static uint64_t NextRandom() {
+    sharedState->randomState = DeterministicRandom(sharedState->randomState);
+    return sharedState->randomState;
 }
 
 static void AppendWeightedId(WeightedIdList *list, WeightedId item) {

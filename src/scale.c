@@ -63,7 +63,7 @@ static bool IsNoteInScale(Scale scale, int note) {
 }
 
 static void InitChordQueue(ChordQueue *chordQueue, Chord chord) {
-    ASSERT(chordQueue->count == 0);
+    *chordQueue = (ChordQueue){0};
     chordQueue->chords[chordQueue->count++] = chord;
 }
 

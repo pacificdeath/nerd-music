@@ -1,10 +1,10 @@
-static float MusicalEventDuration(const MusicalEvent *event) {
-    const float measureDuration = 240.0f / sharedState->bpm;
+static float MusicalEventDuration(const MusicalEvent *event, float bpm) {
+    const float measureDuration = 240.0f / bpm;
     return measureDuration * event->duration / MEASURE_EVENT_CAPACITY;
 }
 
-static unsigned int MusicalEventDurationToSampleDuration(int duration) {
-    float quarterNoteSamples = SAMPLE_RATE * (60.0f / sharedState->bpm);
+static unsigned int MusicalEventDurationToSampleDuration(int duration, float bpm) {
+    float quarterNoteSamples = SAMPLE_RATE * (60.0f / bpm);
     return (unsigned int)roundf(
         quarterNoteSamples * ((float)duration / (float)DURATION_4)
     );

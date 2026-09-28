@@ -23,20 +23,20 @@ static void GuiContainerInitialize(GuiContainer containers[GUI_CONTAINER_COUNT])
     containers[GUI_CONTAINER_MELODY].name = "Melody Sequencer";
     containers[GUI_CONTAINER_MELODY].color = COLOR(.5f,.25f,.25f);
     containers[GUI_CONTAINER_MELODY].flags = FLAG_GUI_CONTAINER_EXPANDED_REQUEST | FLAG_GUI_CONTAINER_EXPANDED;
-    containers[GUI_CONTAINER_MELODY].buttonChar = '1';
+    containers[GUI_CONTAINER_MELODY].buttonChar = KEY_ONE;
 
     containers[GUI_CONTAINER_HARMONY].name = "Harmony Sequencer";
     containers[GUI_CONTAINER_HARMONY].color = COLOR(.25f,.5f,.25f);
     containers[GUI_CONTAINER_HARMONY].flags = FLAG_NONE;
-    containers[GUI_CONTAINER_HARMONY].buttonChar = '2';
+    containers[GUI_CONTAINER_HARMONY].buttonChar = KEY_TWO;
 
     containers[GUI_CONTAINER_MENU].name = "Menu";
     containers[GUI_CONTAINER_MENU].color = COLOR(.25f,.25f,.5f);
     containers[GUI_CONTAINER_MENU].flags = FLAG_NONE;
-    containers[GUI_CONTAINER_MENU].buttonChar = '3';
+    containers[GUI_CONTAINER_MENU].buttonChar = KEY_THREE;
 }
 
-static void GuiContainerUpdate(GuiContainer containers[GUI_CONTAINER_COUNT]) {
+static void GuiContainerUpdate(Rectangle bigRectangle, GuiContainer containers[GUI_CONTAINER_COUNT]) {
     float expandedContainers = 0;
     for (int i = 0; i < GUI_CONTAINER_COUNT; i++) {
         GuiContainer *container = &containers[i];
@@ -62,7 +62,7 @@ static void GuiContainerUpdate(GuiContainer containers[GUI_CONTAINER_COUNT]) {
     float expandedContentHeight = 0;
 
     if (expandedContainers > 0) {
-        expandedContainerHeight = (GetScreenHeight() - (collapsedContainerHeight * (GUI_CONTAINER_COUNT - expandedContainers))) / expandedContainers;
+        expandedContainerHeight = (bigRectangle.height - (collapsedContainerHeight * (GUI_CONTAINER_COUNT - expandedContainers))) / expandedContainers;
         expandedContentHeight = expandedContainerHeight - collapsedContainerHeight;
     }
 
@@ -70,6 +70,8 @@ static void GuiContainerUpdate(GuiContainer containers[GUI_CONTAINER_COUNT]) {
 
     Vector2 mousePosition = GetMousePosition();
     bool mouseButtonPressed = IsMouseButtonPressed(0);
+
+    bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
 
     for (int i = 0; i < GUI_CONTAINER_COUNT; i++) {
         GuiContainer *container = &containers[i];
@@ -79,7 +81,7 @@ static void GuiContainerUpdate(GuiContainer containers[GUI_CONTAINER_COUNT]) {
         container->outerRectangle = (Rectangle) {
             .x = 0,
             .y = globalHeight,
-            .width = GetScreenWidth(),
+            .width = bigRectangle.width,
             .height = expanded ? expandedContainerHeight : collapsedContainerHeight,
         };
 
@@ -99,7 +101,7 @@ static void GuiContainerUpdate(GuiContainer containers[GUI_CONTAINER_COUNT]) {
 
         Rectangle expandButtonRectangle = GetGuiContainerExpandButtonRectangle(container);
 
-        bool keyboardActivation = IsKeyPressed(container->buttonChar);
+        bool keyboardActivation = ctrl && IsKeyPressed(container->buttonChar);
         bool mouseActivation = mouseButtonPressed && CheckCollisionPointRec(mousePosition, expandButtonRectangle);
 
         if (keyboardActivation || mouseActivation) {

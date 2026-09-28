@@ -17,7 +17,7 @@
 #define ASSERT(condition)
 #endif
 
-// defines:
+#define PI2 (PI*2)
 
 #define MIN(a, b) ((a)<(b)?(a):(b))
 
@@ -59,6 +59,11 @@ typedef uint64_t flagtype;
 #define FLAG_NONE ((uint64_t)0)
 #define FLAG(x) ((uint64_t)1 << (x))
 
+#define FLAG_CONTROLLER_PLAY FLAG(0)
+#define FLAG_CONTROLLER_SETTING_BPM FLAG(1)
+#define FLAG_CONTROLLER_NEXT_SONG FLAG(2)
+#define FLAG_CONTROLLER_PREVIOUS_SONG FLAG(3)
+
 // chord triads:
 #define FLAG_TRIAD_MAJOR                 (FLAG(0 ))
 #define FLAG_TRIAD_MINOR                 (FLAG(1 ))
@@ -98,6 +103,11 @@ typedef uint64_t flagtype;
 #define COLOR(r,g,b) ((Color){(r)*255.0f,(g)*255.0f,(b)*255.0f,255})
 
 enum {
+    PLAY_STATE_IDLE = 0,
+    PLAY_STATE_RUNNING,
+    PLAY_STATE_STOP_AUDIO_THREAD,
+    PLAY_STATE_STOP_MAIN_THREAD,
+
     DEFAULT_AUDIO_BACK_BUFFER_INDEX = 0,
     DEFAULT_AUDIO_FRONT_BUFFER_INDEX,
     AUDIO_BUFFER_COUNT,
@@ -212,7 +222,7 @@ typedef struct MusicalEvent {
 } MusicalEvent;
 
 typedef struct Measure {
-    int flags;
+    flagtype flags;
     MusicalEvent events[MEASURE_EVENT_CAPACITY];
     int eventCount;
     Chord chord;
@@ -231,6 +241,9 @@ typedef struct MeasurePlaybackState {
     // use only on audio thread
     unsigned int eventStartSample;
     unsigned int eventEndSample;
+
+    // the event position that the main thread "thinks" the audio thread has reached
+    double predictedEventPosition;
 } MeasurePlaybackState;
 
 typedef struct MusicBuffer {
@@ -246,13 +259,6 @@ typedef struct FloatBox {
     float width;
     float height;
 } FloatBox;
-
-typedef struct MenuItem {
-    int type;
-    const char *text;
-    int value;
-    FloatBox box;
-} MenuItem;
 
 typedef struct GuiContainer {
     const char *name;
@@ -270,18 +276,54 @@ typedef struct Sequencer {
     Cursor cursors[MEASURE_TOTAL];
 } Sequencer;
 
-#define MENU_ITEM_COUNT (SCALE_COUNT + NOTES_PER_OCTAVE + RHYTHM_TYPE_COUNT)
-typedef struct Menu {
+#define TERMINAL_LINE_MAX_LENGTH 64
+typedef struct TerminalLine {
+    char chars[TERMINAL_LINE_MAX_LENGTH];
+    int count;
+} TerminalLine;
+
+#define TERMINAL_LINE_COUNT 64
+typedef struct Terminal {
+    TerminalLine inputLine;
+    TerminalLine lines[TERMINAL_LINE_COUNT];
+    int lineCount;
+
     const GuiContainer *guiContainer;
     Rectangle rectangle;
 
     int rootNote;
     Scale scale;
     int rhythmType;
+} Terminal;
 
-    MenuItem items[MENU_ITEM_COUNT];
-    int hoverIndex;
-} Menu;
+typedef struct CircleButton {
+    Vector2 center;
+    float radius;
+} CircleButton;
+
+typedef struct Controller {
+    flagtype flags;
+    Rectangle rectangle;
+    Rectangle bpmRectangle;
+
+    Vector2 bpmCircleCenter;
+    float bpmCircleRadius;
+    float bpmAnimationTimer;
+
+    CircleButton playButton;
+    CircleButton nextSongButton;
+    CircleButton previousSongButton;
+} Controller;
+
+#define SONG_NAME_CONSONANT_COUNT 16
+#define SONG_NAME_VOWEL_COUNT 16
+#define SONG_NAME_SPACE_COUNT 3
+// +1 in the end for \0
+#define SONG_NAME_CAPACITY (SONG_NAME_CONSONANT_COUNT + SONG_NAME_VOWEL_COUNT + SONG_NAME_SPACE_COUNT + 1)
+typedef struct SongName {
+    int length;
+    char chars[SONG_NAME_CAPACITY];
+} SongName;
 
 typedef struct State {
     Font font;
@@ -293,19 +335,26 @@ typedef struct State {
     int mirrorFrontBufferIndex;
 
     GuiContainer guiContainers[GUI_CONTAINER_COUNT];
-
+    Controller controller;
     Sequencer sequencer;
-
-    Menu menu;
-
+    Terminal terminal;
     ChordQueue chordQueue;
+
+    uint64_t songIndex;
+    SongName songName;
+
+    // main thread copies of the atomic data,
+    // updated once per frame
+    float bpm;
+    float isPlaying;
 } State;
 
 typedef struct SharedState {
+    _Atomic(int) playState;
     _Atomic(bool) isAudioBackBufferPrepared;
 
-    // main thread should only modify if .atomic.isAudioBackBufferPrepared is false
-    // audio thread should only modify if .atomic.isAudioBackBufferPrepared is true
+    // main thread should only modify if .isAudioBackBufferPrepared is false
+    // audio thread should only modify if .isAudioBackBufferPrepared is true
     int audioBackBufferIndex;
 
     int audioFrontBufferIndex;
@@ -316,7 +365,7 @@ typedef struct SharedState {
     MeasurePlaybackState measurePlaybackStates[MEASURE_TOTAL];
 
     // TODO: customizable at runtime, this has to be atomic basically
-    float bpm;
+    _Atomic(float) bpm;
 
     // this must be greater than zero for the randomness to work properly
     // TODO: is this guaranteed now?

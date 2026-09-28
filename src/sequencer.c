@@ -30,6 +30,7 @@ enum {
 };
 
 typedef struct MeasureRenderSettings {
+    bool isCurrentMeasure;
     int measureTimeDimension;
     const MusicBuffer *buffer;
     int measureIndex;
@@ -45,11 +46,13 @@ typedef struct MeasureRenderSettings {
 #define COLOR_CHORD_NOTE_ACTIVE_FG COLOR(.5,1,.5)
 #define COLOR_CHORD_NOTE_INACTIVE_FG COLOR(.25,.5,.25)
 
-#define COLOR_SCALE_NOTE_ACTIVE_FG COLOR(.5,.5,1)
-#define COLOR_SCALE_NOTE_INACTIVE_FG COLOR(.25,.25,.5)
+#define COLOR_SCALE_NOTE_ACTIVE_FG COLOR(.25,.5,1)
+#define COLOR_SCALE_NOTE_INACTIVE_FG COLOR(.125,.25,.5)
 
 #define COLOR_CHROMATIC_NOTE_ACTIVE_FG COLOR(1,.5,.5)
 #define COLOR_CHROMATIC_NOTE_INACTIVE_FG COLOR(.5,.25,.25)
+
+#define COLOR_MEASURE_CURSOR COLOR(.2f,.2f,.2f)
 
 static void MeasureRender(MeasureRenderSettings settings) {
     const MusicBuffer *buffer = settings.buffer;
@@ -168,36 +171,56 @@ static void MeasureRender(MeasureRenderSettings settings) {
             }
         }
 
-        if (cursorTimeDimension == CURSOR_AT_CURRENT_EVENT) {
-            Vector2 start = {
-                measureBackground.x + (measureBackground.width / 2),
-                measureBackground.y,
-            };
-            Vector2 end = {
-                start.x,
-                measureBackground.y + measureBackground.height,
-            };
-            DrawLineEx(start, end, 2, YELLOW); // TODO
-        }
-
         eventOffset += eventWidth;
+    }
+
+    if (settings.isCurrentMeasure) {
+        Vector2 visualCursorStart = {
+            measureBackground.x + (measureBackground.width / 2),
+            measureBackground.y,
+        };
+        Vector2 visualCursorEnd = {
+            visualCursorStart.x,
+            measureBackground.y + measureBackground.height,
+        };
+        DrawLineEx(visualCursorStart, visualCursorEnd, 2, COLOR_MEASURE_CURSOR);
+    }
+}
+
+static void SequencerIdle(Sequencer *sequencer) {
+    for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
+        // sequencer will simply stay idle at the start of the first measure
+        sequencer->cursors[measureIndex] = (Cursor) {0};
     }
 }
 
 static void SequencerUpdate(const State *state, Sequencer *sequencer) {
+    if (!state->isPlaying) {
+        SequencerIdle(sequencer);
+        return;
+    }
+
+    float bpm = state->bpm;
+
     const MusicBuffer *visualFrontBuffer = GetReadonlyMirrorBuffer(state->mirrorBuffers, state->mirrorFrontBufferIndex);
 
     for (int measureIndex = 0; measureIndex < MEASURE_TOTAL; measureIndex++) {
+        const Measure *measure = &visualFrontBuffer->measures[measureIndex];
         const MeasurePlaybackState *measurePlaybackState = &sharedState->measurePlaybackStates[measureIndex];
 
         int lastReportedEventIndex = atomic_load_explicit(&measurePlaybackState->eventIndex, memory_order_relaxed);
         float lastReportedEventPosition = atomic_load_explicit(&measurePlaybackState->eventPosition, memory_order_relaxed);
         double lastReportedTimestamp = atomic_load_explicit(&measurePlaybackState->timestamp, memory_order_relaxed);
 
-        ASSERT(lastReportedEventIndex < MEASURE_EVENT_CAPACITY);
+        if (lastReportedEventIndex >= measure->eventCount) {
+            SequencerIdle(sequencer);
+            return;
+        }
 
-        const MusicalEvent *event = &visualFrontBuffer->measures[measureIndex].events[lastReportedEventIndex];
-        float eventDuration = MusicalEventDuration(event);
+        ASSERT(lastReportedEventIndex < measure->eventCount);
+
+        const MusicalEvent *event = &measure->events[lastReportedEventIndex];
+        float eventDuration = MusicalEventDuration(event, bpm);
 
         double sequencerTimestamp = GetTime();
         double elapsed = sequencerTimestamp - lastReportedTimestamp;
@@ -268,29 +291,46 @@ static void SequencerRender(const State *state) {
 
         MeasureRenderSettings settings = {0};
 
+        const float oldBufferCursorPosition = absoluteCursorXPosition + measureWidth;
+        const float frontBufferCursorPosition = absoluteCursorXPosition;
+        const float backBufferCursorPosition = absoluteCursorXPosition - measureWidth;
+
         settings.localCursorXPosition = cursor.eventPosition;
         settings.currentEventIndex = cursor.eventIndex;
         settings.measureIndex = measureIndex;
         settings.measureBackground = measureBackground;
         settings.eventHeight = eventHeight;
 
-        // old events from the previous front buffer that are still visible in sequencer
-        settings.buffer = visualOldBuffer;
-        settings.absoluteCursorXPosition = absoluteCursorXPosition + measureWidth;
-        settings.measureTimeDimension = MEASURE_TIME_DIMENSION_PAST;
-        MeasureRender(settings);
+        if (state->isPlaying) {
+            // old events from the previous front buffer that are still visible in sequencer
+            settings.buffer = visualOldBuffer;
+            settings.absoluteCursorXPosition = oldBufferCursorPosition;
+            settings.measureTimeDimension = MEASURE_TIME_DIMENSION_PAST;
+            settings.isCurrentMeasure = false;
+            MeasureRender(settings);
 
-        // events in the current buffer
-        settings.buffer = visualFrontBuffer;
-        settings.absoluteCursorXPosition = absoluteCursorXPosition;
-        settings.measureTimeDimension = MEASURE_TIME_DIMENSION_CURRENT;
-        MeasureRender(settings);
+            // events in the current buffer
+            settings.buffer = visualFrontBuffer;
+            settings.absoluteCursorXPosition = frontBufferCursorPosition;
+            settings.measureTimeDimension = MEASURE_TIME_DIMENSION_CURRENT;
+            settings.isCurrentMeasure = true;
+            MeasureRender(settings);
 
-        // upcoming events part the back buffer
-        settings.buffer = visualBackBuffer;
-        settings.absoluteCursorXPosition = absoluteCursorXPosition - measureWidth;
-        settings.measureTimeDimension = MEASURE_TIME_DIMENSION_FUTURE;
-        MeasureRender(settings);
+            // upcoming events part the back buffer
+            settings.buffer = visualBackBuffer;
+            settings.absoluteCursorXPosition = backBufferCursorPosition;
+            settings.measureTimeDimension = MEASURE_TIME_DIMENSION_FUTURE;
+            settings.isCurrentMeasure = false;
+            MeasureRender(settings);
+        } else {
+            // when not playingg, the back buffer is displayed in the position that usually belongs to the front buffer,
+            // this is because as soon as we start playing, this will instantly become the new front buffer
+            settings.buffer = visualBackBuffer;
+            settings.absoluteCursorXPosition = frontBufferCursorPosition;
+            settings.measureTimeDimension = MEASURE_TIME_DIMENSION_FUTURE;
+            settings.isCurrentMeasure = true;
+            MeasureRender(settings);
+        }
     }
 }
 
